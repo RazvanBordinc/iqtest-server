@@ -1,0 +1,21 @@
+using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
+
+namespace IqTest_server.DTOs.Test
+{
+    public class SubmitAnswersDto
+    {
+        [Required]
+        public string TestTypeId { get; set; }
+
+        [Required]
+        public List<AnswerDto> Answers { get; set; }
+    }
+
+    public class AnswerDto
+    {
+        public int QuestionId { get; set; }
+        public object Value { get; set; } // Can be int (index) or string depending on question type
+        public string Type { get; set; }
+    }
+}

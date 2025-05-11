@@ -1,0 +1,30 @@
+using System;
+using System.ComponentModel.DataAnnotations;
+
+namespace IqTest_server.Models
+{
+    public class LeaderboardEntry
+    {
+        public int Id { get; set; }
+
+        [Required]
+        public int UserId { get; set; }
+
+        [Required]
+        public int TestTypeId { get; set; }
+
+        public int Rank { get; set; }
+
+        public int Score { get; set; }
+
+        public float Percentile { get; set; }
+
+        public int TestsCompleted { get; set; }
+
+        public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
+
+        // Navigation properties
+        public virtual User User { get; set; }
+        public virtual TestType TestType { get; set; }
+    }
+}
