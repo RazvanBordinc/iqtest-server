@@ -1,46 +1,41 @@
+// Services/QuestionService.cs
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text.Json;
 using System.Threading.Tasks;
-using IqTest_server.Data;
 using IqTest_server.DTOs.Test;
-using IqTest_server.Models;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace IqTest_server.Services
 {
     public class QuestionService
     {
-        private readonly ApplicationDbContext _context;
         private readonly ILogger<QuestionService> _logger;
+        private readonly QuestionGeneratorService _questionGenerator;
 
-        public QuestionService(ApplicationDbContext context, ILogger<QuestionService> logger)
+        public QuestionService(ILogger<QuestionService> logger, QuestionGeneratorService questionGenerator)
         {
-            _context = context;
             _logger = logger;
+            _questionGenerator = questionGenerator;
         }
 
         public async Task<IEnumerable<QuestionDto>> GetQuestionsByTestTypeIdAsync(string testTypeId)
         {
             try
             {
-                var testType = await _context.TestTypes
-                    .FirstOrDefaultAsync(t => t.TypeId == testTypeId);
-
+                // Get test type to determine number of questions
+                var testType = TestTypeData.GetTestTypeById(testTypeId);
                 if (testType == null)
                 {
                     _logger.LogWarning("Test type not found: {TestTypeId}", testTypeId);
                     return new List<QuestionDto>();
                 }
 
-                var questions = await _context.Questions
-                    .Where(q => q.TestTypeId == testType.Id)
-                    .OrderBy(q => q.OrderIndex)
-                    .ToListAsync();
+                // Generate questions for this test type
+                var questions = await _questionGenerator.GenerateQuestionsAsync(testTypeId, testType.Stats.QuestionsCount);
 
-                return questions.Select(q => MapToQuestionDto(q)).ToList();
+                _logger.LogInformation("Generated {Count} questions for test type: {TestTypeId}", questions.Count, testTypeId);
+
+                return questions;
             }
             catch (Exception ex)
             {
@@ -53,51 +48,16 @@ namespace IqTest_server.Services
         {
             try
             {
-                var question = await _context.Questions.FindAsync(questionId);
-                if (question == null)
-                {
-                    _logger.LogWarning("Question not found: {QuestionId}", questionId);
-                    return null;
-                }
-
-                return MapToQuestionDto(question);
+                // For the mockup implementation, we don't store questions by ID
+                // This method would typically be used for future implementations
+                _logger.LogWarning("GetQuestionById not implemented for mockup data. QuestionId: {QuestionId}", questionId);
+                return null;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error retrieving question: {QuestionId}", questionId);
                 throw;
             }
-        }
-
-        private QuestionDto MapToQuestionDto(Question question)
-        {
-            var dto = new QuestionDto
-            {
-                Id = question.Id,
-                Type = question.Type,
-                Category = question.Category,
-                Text = question.Text,
-                MemorizationTime = question.MemorizationTime
-            };
-
-            // Deserialize options if present
-            if (!string.IsNullOrEmpty(question.Options))
-            {
-                dto.Options = JsonSerializer.Deserialize<List<string>>(question.Options);
-            }
-
-            // Deserialize pairs and missing indices for memory questions
-            if (question.Type == "memory-pair" && !string.IsNullOrEmpty(question.Pairs))
-            {
-                dto.Pairs = JsonSerializer.Deserialize<List<List<string>>>(question.Pairs);
-
-                if (!string.IsNullOrEmpty(question.MissingIndices))
-                {
-                    dto.MissingIndices = JsonSerializer.Deserialize<List<List<int>>>(question.MissingIndices);
-                }
-            }
-
-            return dto;
         }
     }
 }

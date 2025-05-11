@@ -67,9 +67,9 @@ builder.Services.AddSingleton<JwtHelper>();
 builder.Services.AddScoped<AuthService>();
 builder.Services.AddScoped<QuestionService>();
 builder.Services.AddScoped<TestService>();
-builder.Services.AddScoped<ScoreCalculationService>();
 builder.Services.AddScoped<LeaderboardService>();
-
+builder.Services.AddScoped<QuestionGeneratorService>();
+builder.Services.AddScoped<AnswerValidatorService>();
 // JWT Authentication with custom token extraction
 builder.Services.AddAuthentication(options =>
 {
