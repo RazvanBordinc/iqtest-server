@@ -44,32 +44,15 @@ namespace IqTest_server.Controllers
         [HttpGet("questions/{testTypeId}")]
         public async Task<IActionResult> GetTestQuestions(string testTypeId)
         {
+            // Add more logging here
             var userId = GetUserId();
+            _logger.LogInformation("GetTestQuestions called with testTypeId: {TestTypeId}, userId: {UserId}",
+                testTypeId, userId);
 
-            if (userId <= 0)
-            {
-                _logger.LogWarning("Unauthorized access to questions - User ID: {UserId}", userId);
-                return Unauthorized(new { message = "User not authenticated" });
-            }
-
-            _logger.LogInformation("Getting questions for test type: {TestTypeId}, User: {UserId}", testTypeId, userId);
-
-            try
-            {
-                var (questions, _) = await _testService.GenerateQuestionsForTestAsync(testTypeId);
-
-                if (questions == null || questions.Count == 0)
-                {
-                    return NotFound(new { message = "No questions found for this test type" });
-                }
-
-                return Ok(questions);
-            }
-            catch (System.Exception ex)
-            {
-                _logger.LogError(ex, "Error getting questions for test type: {TestTypeId}", testTypeId);
-                return StatusCode(500, new { message = "An error occurred while retrieving questions" });
-            }
+            // Rest of the code...
+            var result = await _testService.GenerateQuestionsForTestAsync(testTypeId);
+            _logger.LogInformation("Returning {Count} questions", result.Questions.Count);
+            return Ok(result.Questions);
         }
 
         [HttpPost("submit")]
