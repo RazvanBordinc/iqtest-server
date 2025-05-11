@@ -1,4 +1,5 @@
 using System;
+using System.IdentityModel.Tokens.Jwt;
 using System.Text;
 using System.Threading.Tasks;
 using IqTest_server.Data;
@@ -36,10 +37,19 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowSpecificOrigin", policy =>
     {
-        policy.WithOrigins(builder.Configuration["AllowedHosts"] ?? "http://localhost:3000")
+        policy.WithOrigins("http://localhost:3000", "http://frontend:3000", "http://host.docker.internal:3000")
             .AllowAnyMethod()
             .AllowAnyHeader()
-            .AllowCredentials(); // For cookies
+            .AllowCredentials()
+            .SetIsOriginAllowed(origin =>
+            {
+                // Allow any origin in development
+                if (builder.Environment.IsDevelopment())
+                    return true;
+
+                // In production, be more restrictive
+                return origin == "http://localhost:3000" || origin == "http://frontend:3000";
+            });
     });
 });
 
@@ -51,6 +61,8 @@ builder.Services.AddScoped<QuestionService>();
 builder.Services.AddScoped<TestService>();
 builder.Services.AddScoped<ScoreCalculationService>();
 builder.Services.AddScoped<LeaderboardService>();
+JwtSecurityTokenHandler.DefaultMapInboundClaims = false;
+
 
 // JWT Authentication
 builder.Services.AddAuthentication(options =>
@@ -69,14 +81,48 @@ builder.Services.AddAuthentication(options =>
         ValidIssuer = builder.Configuration["Jwt:Issuer"],
         ValidAudience = builder.Configuration["Jwt:Audience"],
         IssuerSigningKey = new SymmetricSecurityKey(
-            Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]))
+            Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"])),
+        ClockSkew = TimeSpan.Zero,
+        NameClaimType = System.Security.Claims.ClaimTypes.Name,
+        RoleClaimType = System.Security.Claims.ClaimTypes.Role
     };
+
     options.Events = new JwtBearerEvents
     {
         OnMessageReceived = context =>
         {
-            // Allow the token to be sent in cookies for API requests
-            context.Token = context.Request.Cookies["token"];
+            // First try to get token from Authorization header
+            var authHeader = context.Request.Headers["Authorization"].FirstOrDefault();
+            if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer "))
+            {
+                context.Token = authHeader.Substring("Bearer ".Length).Trim();
+            }
+
+            // If not found, try to get from cookie
+            if (string.IsNullOrEmpty(context.Token))
+            {
+                context.Token = context.Request.Cookies["token"];
+            }
+
+            return Task.CompletedTask;
+        },
+        OnAuthenticationFailed = context =>
+        {
+            Console.WriteLine($"Authentication failed: {context.Exception}");
+            Console.WriteLine($"Token: {context.Request.Headers["Authorization"].FirstOrDefault()}");
+            return Task.CompletedTask;
+        },
+        OnTokenValidated = context =>
+        {
+            Console.WriteLine("Token validated successfully");
+            var claims = context.Principal?.Claims;
+            if (claims != null)
+            {
+                foreach (var claim in claims)
+                {
+                    Console.WriteLine($"Claim: {claim.Type} = {claim.Value}");
+                }
+            }
             return Task.CompletedTask;
         }
     };
@@ -97,7 +143,12 @@ if (app.Environment.IsDevelopment())
         try
         {
             var context = services.GetRequiredService<ApplicationDbContext>();
-            context.Database.Migrate();
+
+            // Only migrate, don't create database if it exists
+            if (context.Database.GetPendingMigrations().Any())
+            {
+                context.Database.Migrate();
+            }
         }
         catch (Exception ex)
         {

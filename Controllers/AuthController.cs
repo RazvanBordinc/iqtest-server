@@ -72,8 +72,13 @@ namespace IqTest_server.Controllers
             // Set refresh token in HTTP-only cookie
             SetRefreshTokenCookie(refreshToken);
 
+            // ALSO set the access token in a cookie
+            SetAccessTokenCookie(user.Token);
+
             return Ok(user);
         }
+
+       
 
         [HttpPost("refresh-token")]
         public async Task<IActionResult> RefreshToken()
@@ -129,26 +134,63 @@ namespace IqTest_server.Controllers
             return BadRequest(new { message = "Failed to logout" });
         }
 
+        private void SetAccessTokenCookie(string accessToken)
+        {
+            var cookieOptions = new CookieOptions
+            {
+                HttpOnly = false, // Allow JavaScript to read this cookie
+                Expires = DateTime.UtcNow.AddMinutes(15), // Same as token expiry
+                SameSite = SameSiteMode.None,
+                Secure = false, // Set to true in production with HTTPS
+                Path = "/"
+            };
+
+            Response.Cookies.Append("token", accessToken, cookieOptions);
+        }
+
         private void SetRefreshTokenCookie(string refreshToken)
         {
             var cookieOptions = new CookieOptions
             {
                 HttpOnly = true,
                 Expires = DateTime.UtcNow.AddDays(7),
-                SameSite = SameSiteMode.Strict,
-                Secure = Request.IsHttps // Set Secure flag in production (HTTPS)
+                SameSite = SameSiteMode.None,
+                Secure = false, // Set to true in production with HTTPS
+                Path = "/"
             };
 
             Response.Cookies.Append("refreshToken", refreshToken, cookieOptions);
         }
-
         private int GetUserId()
         {
-            var userIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
-            if (userIdClaim != null && int.TryParse(userIdClaim.Value, out int userId))
+            // Use the exact claim type that's in the token
+            var userIdClaim = User.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier");
+
+            if (userIdClaim != null)
             {
-                return userId;
+                _logger.LogInformation("Found user ID claim: {ClaimValue}", userIdClaim.Value);
+
+                if (int.TryParse(userIdClaim.Value, out int userId))
+                {
+                    return userId;
+                }
             }
+
+            // Try alternative claim types
+            userIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+            if (userIdClaim != null)
+            {
+                _logger.LogInformation("Found alt user ID claim: {ClaimValue}", userIdClaim.Value);
+
+                if (int.TryParse(userIdClaim.Value, out int userId))
+                {
+                    return userId;
+                }
+            }
+
+            _logger.LogWarning("No valid user ID claim found. Available claims: {Claims}",
+                string.Join(", ", User.Claims.Select(c => $"{c.Type}={c.Value}")));
+
             return 0;
         }
     }
