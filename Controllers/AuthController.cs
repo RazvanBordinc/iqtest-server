@@ -11,15 +11,16 @@ namespace IqTest_server.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    public class AuthController : ControllerBase
+    public class AuthController : BaseController
     {
         private readonly AuthService _authService;
-        private readonly ILogger<AuthController> _logger;
+        private readonly IHostEnvironment _env;
 
-        public AuthController(AuthService authService, ILogger<AuthController> logger)
+        public AuthController(AuthService authService, ILogger<AuthController> logger, IHostEnvironment env)
+            : base(logger)
         {
             _authService = authService;
-            _logger = logger;
+            _env = env;
         }
 
         [HttpPost("register")]
@@ -78,20 +79,23 @@ namespace IqTest_server.Controllers
             return Ok(user);
         }
 
-       
-
         [HttpPost("refresh-token")]
         public async Task<IActionResult> RefreshToken()
         {
-            // Get the refresh token from the cookie
+            // Try to get refresh token from cookie first
             var refreshToken = Request.Cookies["refreshToken"];
             if (string.IsNullOrEmpty(refreshToken))
             {
                 return BadRequest(new { message = "Refresh token is required" });
             }
 
-            // Get the access token from the Authorization header
-            var accessToken = Request.Headers["Authorization"].ToString().Replace("Bearer ", "");
+            // Try to get access token from cookie or Authorization header
+            var accessToken = Request.Cookies["token"];
+            if (string.IsNullOrEmpty(accessToken))
+            {
+                accessToken = Request.Headers["Authorization"].ToString().Replace("Bearer ", "");
+            }
+
             if (string.IsNullOrEmpty(accessToken))
             {
                 return BadRequest(new { message = "Access token is required" });
@@ -107,6 +111,8 @@ namespace IqTest_server.Controllers
 
             // Set the new refresh token in the cookie
             SetRefreshTokenCookie(newRefreshToken);
+            // Also set the new access token
+            SetAccessTokenCookie(user.Token);
 
             return Ok(user);
         }
@@ -126,8 +132,19 @@ namespace IqTest_server.Controllers
 
             if (success)
             {
-                // Clear the refresh token cookie
-                Response.Cookies.Delete("refreshToken");
+                // Clear both cookies
+                Response.Cookies.Delete("refreshToken", new CookieOptions
+                {
+                    SameSite = SameSiteMode.None,
+                    Secure = !_env.IsDevelopment(),
+                    Path = "/"
+                });
+                Response.Cookies.Delete("token", new CookieOptions
+                {
+                    SameSite = SameSiteMode.None,
+                    Secure = !_env.IsDevelopment(),
+                    Path = "/"
+                });
                 return Ok(new { message = "Logged out successfully" });
             }
 
@@ -140,8 +157,8 @@ namespace IqTest_server.Controllers
             {
                 HttpOnly = false, // Allow JavaScript to read this cookie
                 Expires = DateTime.UtcNow.AddMinutes(15), // Same as token expiry
-                SameSite = SameSiteMode.None,
-                Secure = false, // Set to true in production with HTTPS
+                SameSite = _env.IsDevelopment() ? SameSiteMode.Lax : SameSiteMode.None,
+                Secure = !_env.IsDevelopment(), // Only secure in production
                 Path = "/"
             };
 
@@ -154,44 +171,12 @@ namespace IqTest_server.Controllers
             {
                 HttpOnly = true,
                 Expires = DateTime.UtcNow.AddDays(7),
-                SameSite = SameSiteMode.None,
-                Secure = false, // Set to true in production with HTTPS
+                SameSite = _env.IsDevelopment() ? SameSiteMode.Lax : SameSiteMode.None,
+                Secure = !_env.IsDevelopment(), // Only secure in production
                 Path = "/"
             };
 
             Response.Cookies.Append("refreshToken", refreshToken, cookieOptions);
-        }
-        private int GetUserId()
-        {
-            // Use the exact claim type that's in the token
-            var userIdClaim = User.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier");
-
-            if (userIdClaim != null)
-            {
-                _logger.LogInformation("Found user ID claim: {ClaimValue}", userIdClaim.Value);
-
-                if (int.TryParse(userIdClaim.Value, out int userId))
-                {
-                    return userId;
-                }
-            }
-
-            // Try alternative claim types
-            userIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
-            if (userIdClaim != null)
-            {
-                _logger.LogInformation("Found alt user ID claim: {ClaimValue}", userIdClaim.Value);
-
-                if (int.TryParse(userIdClaim.Value, out int userId))
-                {
-                    return userId;
-                }
-            }
-
-            _logger.LogWarning("No valid user ID claim found. Available claims: {Claims}",
-                string.Join(", ", User.Claims.Select(c => $"{c.Type}={c.Value}")));
-
-            return 0;
         }
     }
 }

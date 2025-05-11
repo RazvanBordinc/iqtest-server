@@ -21,7 +21,7 @@ builder.Services.AddLogging(logging =>
     logging.ClearProviders();
     logging.AddConsole();
     logging.AddDebug();
- 
+
 });
 
 // Database context
@@ -91,17 +91,17 @@ builder.Services.AddAuthentication(options =>
     {
         OnMessageReceived = context =>
         {
-            // First try to get token from Authorization header
-            var authHeader = context.Request.Headers["Authorization"].FirstOrDefault();
-            if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer "))
-            {
-                context.Token = authHeader.Substring("Bearer ".Length).Trim();
-            }
+            // First try to get token from cookies
+            context.Token = context.Request.Cookies["token"];
 
-            // If not found, try to get from cookie
+            // If not found in cookies, try Authorization header
             if (string.IsNullOrEmpty(context.Token))
             {
-                context.Token = context.Request.Cookies["token"];
+                var authHeader = context.Request.Headers["Authorization"].FirstOrDefault();
+                if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer "))
+                {
+                    context.Token = authHeader.Substring("Bearer ".Length).Trim();
+                }
             }
 
             return Task.CompletedTask;
@@ -109,7 +109,7 @@ builder.Services.AddAuthentication(options =>
         OnAuthenticationFailed = context =>
         {
             Console.WriteLine($"Authentication failed: {context.Exception}");
-            Console.WriteLine($"Token: {context.Request.Headers["Authorization"].FirstOrDefault()}");
+ 
             return Task.CompletedTask;
         },
         OnTokenValidated = context =>
