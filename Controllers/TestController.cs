@@ -10,21 +10,28 @@ namespace IqTest_server.Controllers
     [Route("api/[controller]")]
     [ApiController]
     [Authorize]
-    public class TestController : ControllerBase
+    public class TestController : BaseController  // Changed from ControllerBase to BaseController
     {
         private readonly TestService _testService;
-        private readonly ILogger<TestController> _logger;
 
         public TestController(TestService testService, ILogger<TestController> logger)
+            : base(logger)  // Pass logger to base controller
         {
             _testService = testService;
-            _logger = logger;
         }
 
         [HttpGet]
         public async Task<IActionResult> GetAvailableTests()
         {
-            _logger.LogInformation("Getting available tests");
+            // Add authentication check
+            var userId = GetUserId();
+            if (userId <= 0)
+            {
+                _logger.LogWarning("Unauthorized access to tests - User ID: {UserId}", userId);
+                return Unauthorized(new { message = "User not authenticated" });
+            }
+
+            _logger.LogInformation("Getting available tests for User: {UserId}", userId);
             var tests = await _testService.GetAllTestTypesAsync();
             return Ok(tests);
         }
@@ -32,7 +39,15 @@ namespace IqTest_server.Controllers
         [HttpGet("{testTypeId}")]
         public async Task<IActionResult> GetTestById(string testTypeId)
         {
-            _logger.LogInformation("Getting test by ID: {TestTypeId}", testTypeId);
+            // Add authentication check
+            var userId = GetUserId();
+            if (userId <= 0)
+            {
+                _logger.LogWarning("Unauthorized access to test - User ID: {UserId}", userId);
+                return Unauthorized(new { message = "User not authenticated" });
+            }
+
+            _logger.LogInformation("Getting test by ID: {TestTypeId}, User: {UserId}", testTypeId, userId);
             var test = await _testService.GetTestTypeByIdAsync(testTypeId);
 
             if (test == null)
@@ -54,22 +69,13 @@ namespace IqTest_server.Controllers
             var userId = GetUserId();
             if (userId <= 0)
             {
+                _logger.LogWarning("Unauthorized test submission - User ID: {UserId}", userId);
                 return Unauthorized(new { message = "User not authenticated" });
             }
 
             _logger.LogInformation("Submitting test for user: {UserId}, test type: {TestTypeId}", userId, submission.TestTypeId);
             var result = await _testService.SubmitTestAsync(userId, submission);
             return Ok(result);
-        }
-
-        private int GetUserId()
-        {
-            var userIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
-            if (userIdClaim != null && int.TryParse(userIdClaim.Value, out int userId))
-            {
-                return userId;
-            }
-            return 0;
         }
     }
 }

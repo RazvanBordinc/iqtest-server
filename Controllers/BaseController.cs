@@ -15,11 +15,19 @@ namespace IqTest_server.Controllers
 
         protected int GetUserId()
         {
-            // First try the standard .NET claim type
+            // First try the standard .NET claim type (unmapped)
             var userIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+
+            // If not found, try the "sub" claim (in case mapping is still active)
+            if (userIdClaim == null)
+            {
+                userIdClaim = User.FindFirst("sub");
+            }
 
             if (userIdClaim != null && int.TryParse(userIdClaim.Value, out int userId))
             {
+                _logger.LogInformation("Found user ID: {UserId} from claim type: {ClaimType}",
+                    userId, userIdClaim?.Type);
                 return userId;
             }
 

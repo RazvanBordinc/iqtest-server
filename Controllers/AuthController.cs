@@ -71,14 +71,29 @@ namespace IqTest_server.Controllers
             }
 
             // Set refresh token in HTTP-only cookie
-            SetRefreshTokenCookie(refreshToken);
+            Response.Cookies.Append("refreshToken", refreshToken, new CookieOptions
+            {
+                HttpOnly = true,
+                Secure = !_env.IsDevelopment(),  // Only secure in production
+                SameSite = SameSiteMode.None,    // CRITICAL for container communication
+                Path = "/",
+                Expires = DateTime.UtcNow.AddDays(7),
+                // Do NOT set Domain for container environments
+            });
 
             // ALSO set the access token in a cookie
-            SetAccessTokenCookie(user.Token);
+            Response.Cookies.Append("token", user.Token, new CookieOptions
+            {
+                HttpOnly = false,  // Allow JavaScript access
+                Secure = !_env.IsDevelopment(),
+                SameSite = SameSiteMode.None,  // CRITICAL for container communication
+                Path = "/",
+                Expires = DateTime.UtcNow.AddMinutes(15),
+                // Do NOT set Domain for container environments
+            });
 
             return Ok(user);
         }
-
         [HttpPost("refresh-token")]
         public async Task<IActionResult> RefreshToken()
         {
@@ -157,9 +172,10 @@ namespace IqTest_server.Controllers
             {
                 HttpOnly = false, // Allow JavaScript to read this cookie
                 Expires = DateTime.UtcNow.AddMinutes(15), // Same as token expiry
-                SameSite = _env.IsDevelopment() ? SameSiteMode.Lax : SameSiteMode.None,
+                SameSite = SameSiteMode.None, // CRITICAL for cross-container communication
                 Secure = !_env.IsDevelopment(), // Only secure in production
-                Path = "/"
+                Path = "/",
+                // IMPORTANT: Do NOT set Domain for container environments
             };
 
             Response.Cookies.Append("token", accessToken, cookieOptions);
@@ -171,9 +187,10 @@ namespace IqTest_server.Controllers
             {
                 HttpOnly = true,
                 Expires = DateTime.UtcNow.AddDays(7),
-                SameSite = _env.IsDevelopment() ? SameSiteMode.Lax : SameSiteMode.None,
+                SameSite = SameSiteMode.None, // CRITICAL for cross-container communication
                 Secure = !_env.IsDevelopment(), // Only secure in production
-                Path = "/"
+                Path = "/",
+                // IMPORTANT: Do NOT set Domain for container environments
             };
 
             Response.Cookies.Append("refreshToken", refreshToken, cookieOptions);

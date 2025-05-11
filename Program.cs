@@ -15,13 +15,15 @@ using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// CRITICAL: Disable default claim mapping
+JwtSecurityTokenHandler.DefaultMapInboundClaims = false;
+
 // Add services to the container
 builder.Services.AddLogging(logging =>
 {
     logging.ClearProviders();
     logging.AddConsole();
     logging.AddDebug();
-
 });
 
 // Database context
@@ -32,15 +34,19 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
     )
 );
 
-// CORS policy
+// CORS policy with container-specific origins
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowSpecificOrigin", policy =>
     {
-        policy.WithOrigins("http://localhost:3000", "http://frontend:3000", "http://host.docker.internal:3000")
+        policy.WithOrigins(
+                "http://localhost:3000",
+                "http://frontend:3000",  // Docker container service name
+                "http://host.docker.internal:3000"  // Docker host networking
+            )
             .AllowAnyMethod()
             .AllowAnyHeader()
-            .AllowCredentials()
+            .AllowCredentials()  // CRITICAL for cookies
             .SetIsOriginAllowed(origin =>
             {
                 // Allow any origin in development
@@ -48,7 +54,9 @@ builder.Services.AddCors(options =>
                     return true;
 
                 // In production, be more restrictive
-                return origin == "http://localhost:3000" || origin == "http://frontend:3000";
+                return origin == "http://localhost:3000" ||
+                       origin == "http://frontend:3000" ||
+                       origin == "http://host.docker.internal:3000";
             });
     });
 });
@@ -61,10 +69,8 @@ builder.Services.AddScoped<QuestionService>();
 builder.Services.AddScoped<TestService>();
 builder.Services.AddScoped<ScoreCalculationService>();
 builder.Services.AddScoped<LeaderboardService>();
-JwtSecurityTokenHandler.DefaultMapInboundClaims = false;
 
-
-// JWT Authentication
+// JWT Authentication with custom token extraction
 builder.Services.AddAuthentication(options =>
 {
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -82,8 +88,8 @@ builder.Services.AddAuthentication(options =>
         ValidAudience = builder.Configuration["Jwt:Audience"],
         IssuerSigningKey = new SymmetricSecurityKey(
             Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"])),
-        ClockSkew = TimeSpan.Zero,
-        NameClaimType = System.Security.Claims.ClaimTypes.Name,
+        ClockSkew = TimeSpan.Zero, // Remove default 5-minute clock skew
+        NameClaimType = System.Security.Claims.ClaimTypes.NameIdentifier, // Ensure correct claim mapping
         RoleClaimType = System.Security.Claims.ClaimTypes.Role
     };
 
@@ -92,15 +98,48 @@ builder.Services.AddAuthentication(options =>
         OnMessageReceived = context =>
         {
             // First try to get token from cookies
-            context.Token = context.Request.Cookies["token"];
+            var cookieToken = context.Request.Cookies["token"];
 
-            // If not found in cookies, try Authorization header
-            if (string.IsNullOrEmpty(context.Token))
+            // Then try Authorization header
+            var authHeader = context.Request.Headers["Authorization"].FirstOrDefault();
+            var headerToken = !string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer ")
+                ? authHeader.Substring("Bearer ".Length).Trim()
+                : null;
+
+            // Log what we found
+            Console.WriteLine($"OnMessageReceived - Cookie token: {(cookieToken != null ? "Found" : "Not found")}");
+            Console.WriteLine($"OnMessageReceived - Header token: {(headerToken != null ? "Found" : "Not found")}");
+            Console.WriteLine($"OnMessageReceived - Request Path: {context.Request.Path}");
+            Console.WriteLine($"OnMessageReceived - Request Method: {context.Request.Method}");
+
+            // Use the token from cookie or header
+            context.Token = cookieToken ?? headerToken;
+
+            if (!string.IsNullOrEmpty(context.Token))
             {
-                var authHeader = context.Request.Headers["Authorization"].FirstOrDefault();
-                if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer "))
+                Console.WriteLine("Token successfully extracted");
+            }
+            else
+            {
+                Console.WriteLine("No token found in cookies or headers");
+            }
+
+            return Task.CompletedTask;
+        },
+        OnTokenValidated = context =>
+        {
+            Console.WriteLine("Token validated successfully");
+            var userId = context.Principal?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            Console.WriteLine($"User ID from token: {userId}");
+
+            // Log all claims for debugging
+            var claims = context.Principal?.Claims?.ToList();
+            if (claims != null)
+            {
+                Console.WriteLine("All claims:");
+                foreach (var claim in claims)
                 {
-                    context.Token = authHeader.Substring("Bearer ".Length).Trim();
+                    Console.WriteLine($"  - {claim.Type}: {claim.Value}");
                 }
             }
 
@@ -108,20 +147,18 @@ builder.Services.AddAuthentication(options =>
         },
         OnAuthenticationFailed = context =>
         {
-            Console.WriteLine($"Authentication failed: {context.Exception}");
- 
+            Console.WriteLine($"Authentication failed: {context.Exception.GetType().Name}: {context.Exception.Message}");
+            Console.WriteLine($"Failed token: {context.Request.Cookies["token"] ?? context.Request.Headers["Authorization"].FirstOrDefault()}");
             return Task.CompletedTask;
         },
-        OnTokenValidated = context =>
+        OnChallenge = context =>
         {
-            Console.WriteLine("Token validated successfully");
-            var claims = context.Principal?.Claims;
-            if (claims != null)
+            Console.WriteLine($"OnChallenge called for path: {context.Request.Path}");
+            // Skip challenge for OPTIONS requests
+            if (context.Request.Method == "OPTIONS")
             {
-                foreach (var claim in claims)
-                {
-                    Console.WriteLine($"Claim: {claim.Type} = {claim.Value}");
-                }
+                context.HandleResponse();
+                return Task.CompletedTask;
             }
             return Task.CompletedTask;
         }
@@ -162,11 +199,14 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
-app.UseMiddleware<ErrorHandlingMiddleware>();
+
+// CRITICAL: CORS must come before authentication
 app.UseCors("AllowSpecificOrigin");
 
 app.UseAuthentication();
 app.UseAuthorization();
+
+app.UseMiddleware<ErrorHandlingMiddleware>();
 
 app.MapControllers();
 

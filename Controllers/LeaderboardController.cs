@@ -23,7 +23,6 @@ namespace IqTest_server.Controllers
         public async Task<IActionResult> GetGlobalLeaderboard([FromQuery] int limit = 10)
         {
             var authHeader = Request.Headers["Authorization"].FirstOrDefault();
-            _logger.LogInformation("Getting global leaderboard - Authorization: {Auth}", authHeader?.Substring(0, 20) + "...");
 
             var leaderboard = await _leaderboardService.GetGlobalLeaderboardAsync(limit);
             return Ok(leaderboard);
