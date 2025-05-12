@@ -180,11 +180,8 @@ if (app.Environment.IsDevelopment())
         {
             var context = services.GetRequiredService<ApplicationDbContext>();
 
-            // Only migrate, don't create database if it exists
-            if (context.Database.GetPendingMigrations().Any())
-            {
-                context.Database.Migrate();
-            }
+            // Apply migrations without trying to create the database explicitly
+            context.Database.Migrate();
         }
         catch (Exception ex)
         {
