@@ -12,6 +12,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
+using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -34,6 +35,20 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
     )
 );
 
+// Redis configuration
+builder.Services.AddSingleton<IConnectionMultiplexer>(provider =>
+{
+    var redisConnection = builder.Configuration["Redis:ConnectionString"];
+    if (string.IsNullOrEmpty(redisConnection))
+    {
+        redisConnection = "localhost:6379"; // Default fallback
+    }
+    return ConnectionMultiplexer.Connect(redisConnection);
+});
+
+// HttpClient for DeepSeek API
+builder.Services.AddHttpClient();
+
 // CORS policy with container-specific origins
 builder.Services.AddCors(options =>
 {
@@ -46,18 +61,7 @@ builder.Services.AddCors(options =>
             )
             .AllowAnyMethod()
             .AllowAnyHeader()
-            .AllowCredentials()  // CRITICAL for cookies
-            .SetIsOriginAllowed(origin =>
-            {
-                // Allow any origin in development
-                if (builder.Environment.IsDevelopment())
-                    return true;
-
-                // In production, be more restrictive
-                return origin == "http://localhost:3000" ||
-                       origin == "http://frontend:3000" ||
-                       origin == "http://host.docker.internal:3000";
-            });
+            .AllowCredentials();  // CRITICAL for cookies
     });
 });
 
@@ -70,6 +74,12 @@ builder.Services.AddScoped<TestService>();
 builder.Services.AddScoped<LeaderboardService>();
 builder.Services.AddScoped<QuestionGeneratorService>();
 builder.Services.AddScoped<AnswerValidatorService>();
+builder.Services.AddScoped<RedisService>();
+builder.Services.AddScoped<DeepSeekService>();
+
+// Add background service for question generation
+builder.Services.AddHostedService<BackgroundQuestionGenerationService>();
+
 // JWT Authentication with custom token extraction
 builder.Services.AddAuthentication(options =>
 {

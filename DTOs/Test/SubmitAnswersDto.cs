@@ -10,6 +10,9 @@ namespace IqTest_server.DTOs.Test
 
         [Required]
         public List<AnswerDto> Answers { get; set; }
+
+        // Time taken in seconds
+        public double? TimeTaken { get; set; }
     }
 
     public class AnswerDto
