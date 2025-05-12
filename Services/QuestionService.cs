@@ -10,34 +10,33 @@ namespace IqTest_server.Services
     {
         private readonly ILogger<QuestionService> _logger;
         private readonly QuestionGeneratorService _questionGenerator;
-        private readonly RedisService _redisService;
+        private readonly GithubService _githubService;
 
         public QuestionService(
             ILogger<QuestionService> logger,
             QuestionGeneratorService questionGenerator,
-            RedisService redisService)
+            GithubService githubService)
         {
             _logger = logger;
             _questionGenerator = questionGenerator;
-            _redisService = redisService;
+            _githubService = githubService;
         }
 
         public async Task<IEnumerable<QuestionDto>> GetQuestionsByTestTypeIdAsync(string testTypeId)
         {
             try
             {
-                // Try to get questions from Redis first
-                var questionSetItems = await _redisService.GetLatestQuestionSetAsync(testTypeId);
+                // Fetch questions directly from GitHub
+                var questionItems = await _githubService.GetQuestionsAsync(testTypeId);
 
-                // If questions are found in Redis, return them
-                if (questionSetItems != null && questionSetItems.Count > 0)
+                if (questionItems != null && questionItems.Count > 0)
                 {
-                    _logger.LogInformation("Retrieved {Count} questions from Redis for test type: {TestTypeId}",
-                        questionSetItems.Count, testTypeId);
+                    _logger.LogInformation("Retrieved {Count} questions from GitHub for test type: {TestTypeId}",
+                        questionItems.Count, testTypeId);
 
                     // Extract just the questions without the correct answers
                     var questions = new List<QuestionDto>();
-                    foreach (var item in questionSetItems)
+                    foreach (var item in questionItems)
                     {
                         questions.Add(item.Question);
                     }
@@ -45,8 +44,8 @@ namespace IqTest_server.Services
                     return questions;
                 }
 
-                // Fall back to generated questions if none are found in Redis
-                _logger.LogWarning("No questions found in Redis for test type: {TestTypeId}, falling back to generated questions", testTypeId);
+                // Fall back to generated questions if GitHub fetch fails
+                _logger.LogWarning("No questions found on GitHub for test type: {TestTypeId}, falling back to generated questions", testTypeId);
 
                 // Get test type to determine number of questions
                 var testType = TestTypeData.GetTestTypeById(testTypeId);
@@ -91,16 +90,16 @@ namespace IqTest_server.Services
         {
             try
             {
-                var questionSetItems = await _redisService.GetLatestQuestionSetAsync(testTypeId);
+                var questionItems = await _githubService.GetQuestionsAsync(testTypeId);
 
-                if (questionSetItems == null || questionSetItems.Count == 0)
+                if (questionItems == null || questionItems.Count == 0)
                 {
-                    _logger.LogWarning("No questions found in Redis for test type: {TestTypeId}", testTypeId);
+                    _logger.LogWarning("No questions found for test type: {TestTypeId}", testTypeId);
                     return new Dictionary<int, string>();
                 }
 
                 var correctAnswers = new Dictionary<int, string>();
-                foreach (var item in questionSetItems)
+                foreach (var item in questionItems)
                 {
                     correctAnswers[item.Question.Id] = item.CorrectAnswer;
                 }
@@ -119,16 +118,16 @@ namespace IqTest_server.Services
         {
             try
             {
-                var questionSetItems = await _redisService.GetLatestQuestionSetAsync(testTypeId);
+                var questionItems = await _githubService.GetQuestionsAsync(testTypeId);
 
-                if (questionSetItems == null || questionSetItems.Count == 0)
+                if (questionItems == null || questionItems.Count == 0)
                 {
-                    _logger.LogWarning("No questions found in Redis for test type: {TestTypeId}", testTypeId);
+                    _logger.LogWarning("No questions found for test type: {TestTypeId}", testTypeId);
                     return new Dictionary<int, float>();
                 }
 
                 var weights = new Dictionary<int, float>();
-                foreach (var item in questionSetItems)
+                foreach (var item in questionItems)
                 {
                     weights[item.Question.Id] = item.Weight;
                 }

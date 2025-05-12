@@ -17,20 +17,19 @@ namespace IqTest_server.Services
         private readonly ILogger<TestService> _logger;
         private readonly QuestionService _questionService;
         private readonly AnswerValidatorService _answerValidator;
-        private readonly RedisService _redisService;
+ 
 
         public TestService(
             ApplicationDbContext context,
             ILogger<TestService> logger,
             QuestionService questionService,
-            AnswerValidatorService answerValidator,
-            RedisService redisService)
+            AnswerValidatorService answerValidator )
         {
             _context = context;
             _logger = logger;
             _questionService = questionService;
             _answerValidator = answerValidator;
-            _redisService = redisService;
+ 
         }
 
         public async Task<List<TestTypeDto>> GetAllTestTypesAsync()

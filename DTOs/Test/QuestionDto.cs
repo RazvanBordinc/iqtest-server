@@ -12,5 +12,6 @@ namespace IqTest_server.DTOs.Test
         public int? MemorizationTime { get; set; }
         public List<List<string>> Pairs { get; set; }
         public List<List<int>> MissingIndices { get; set; }
+        public string CorrectAnswer {  get; set; }
     }
 }

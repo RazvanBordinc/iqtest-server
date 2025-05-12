@@ -8,11 +8,9 @@ using IqTest_server.Services;
 using IqTest_server.Utilities;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
+ 
 using Microsoft.IdentityModel.Tokens;
-using StackExchange.Redis;
+ 
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -35,19 +33,9 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
     )
 );
 
-// Redis configuration
-builder.Services.AddSingleton<IConnectionMultiplexer>(provider =>
-{
-    var redisConnection = builder.Configuration["Redis:ConnectionString"];
-    if (string.IsNullOrEmpty(redisConnection))
-    {
-        redisConnection = "localhost:6379"; // Default fallback
-    }
-    return ConnectionMultiplexer.Connect(redisConnection);
-});
+ 
+ 
 
-// HttpClient for openAI API
-builder.Services.AddHttpClient();
 
 // CORS policy with container-specific origins
 builder.Services.AddCors(options =>
@@ -74,11 +62,8 @@ builder.Services.AddScoped<TestService>();
 builder.Services.AddScoped<LeaderboardService>();
 builder.Services.AddScoped<QuestionGeneratorService>();
 builder.Services.AddScoped<AnswerValidatorService>();
-builder.Services.AddScoped<RedisService>();
-builder.Services.AddScoped<OpenAIService>();
+builder.Services.AddScoped<GithubService>();
 
-// Add background service for question generation
-builder.Services.AddHostedService<BackgroundQuestionGenerationService>();
 
 // JWT Authentication with custom token extraction
 builder.Services.AddAuthentication(options =>
@@ -174,7 +159,11 @@ builder.Services.AddAuthentication(options =>
         }
     };
 });
-
+builder.Services.AddHttpClient("GitHub", client =>
+{
+    client.DefaultRequestHeaders.Add("Accept", "application/vnd.github.v3+json");
+    client.DefaultRequestHeaders.Add("User-Agent", "IqTest-server");
+});
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
