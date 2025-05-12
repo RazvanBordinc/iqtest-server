@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using IqTest_server.DTOs.Test;
@@ -127,26 +128,26 @@ namespace IqTest_server.Services
                 _logger.LogInformation("Generating questions for test type: {TestTypeId}", testTypeId);
 
                 using var scope = _serviceProvider.CreateScope();
-                var deepSeekService = scope.ServiceProvider.GetRequiredService<DeepSeekService>();
+                var openAIService = scope.ServiceProvider.GetRequiredService<OpenAIService>();
                 var redisService = scope.ServiceProvider.GetRequiredService<RedisService>();
 
-                // Generate questions using DeepSeek API
-                List<QuestionDto> questions;
+                // Generate questions using OpenAI API
+                List<QuestionWithAnswer> questionsWithAnswers;
                 int questionCount = _questionsPerTestType[testTypeId];
 
                 switch (testTypeId)
                 {
                     case "number-logic":
-                        questions = await deepSeekService.GenerateNumericalReasoningQuestionsAsync(questionCount);
+                        questionsWithAnswers = await openAIService.GenerateNumericalReasoningQuestionsAsync(questionCount);
                         break;
                     case "word-logic":
-                        questions = await deepSeekService.GenerateVerbalIntelligenceQuestionsAsync(questionCount);
+                        questionsWithAnswers = await openAIService.GenerateVerbalIntelligenceQuestionsAsync(questionCount);
                         break;
                     case "memory":
-                        questions = await deepSeekService.GenerateMemoryRecallQuestionsAsync(questionCount);
+                        questionsWithAnswers = await openAIService.GenerateMemoryRecallQuestionsAsync(questionCount);
                         break;
                     case "mixed":
-                        questions = await deepSeekService.GenerateComprehensiveIqQuestionsAsync(questionCount);
+                        questionsWithAnswers = await openAIService.GenerateComprehensiveIqQuestionsAsync(questionCount);
                         break;
                     default:
                         _logger.LogError("Unknown test type: {TestTypeId}", testTypeId);
@@ -154,27 +155,23 @@ namespace IqTest_server.Services
                 }
 
                 // Process generated questions and store in Redis
-                if (questions != null && questions.Count > 0)
+                if (questionsWithAnswers != null && questionsWithAnswers.Count > 0)
                 {
                     var questionSetItems = new List<QuestionSetItem>();
 
-                    foreach (var question in questions)
+                    foreach (var item in questionsWithAnswers)
                     {
-                        // Parse correct answer from DeepSeek response
-                        // This assumes the DeepSeek service includes the correct answer in its response
-                        var correctAnswer = ExtractCorrectAnswer(question);
-
                         // Assign weight based on question type
                         float weight = 1.0f;
-                        if (_questionWeights.ContainsKey(question.Type))
+                        if (_questionWeights.ContainsKey(item.Question.Type))
                         {
-                            weight = _questionWeights[question.Type];
+                            weight = _questionWeights[item.Question.Type];
                         }
 
                         questionSetItems.Add(new QuestionSetItem
                         {
-                            Question = question,
-                            CorrectAnswer = correctAnswer,
+                            Question = item.Question,
+                            CorrectAnswer = item.CorrectAnswer,
                             Weight = weight
                         });
                     }
@@ -204,67 +201,6 @@ namespace IqTest_server.Services
             {
                 _logger.LogError(ex, "Error generating questions for test type: {TestTypeId}", testTypeId);
             }
-        }
-
-        private string ExtractCorrectAnswer(QuestionDto question)
-        {
-            // This method would normally parse the correct answer from the DeepSeek response
-            // For now, we'll use a placeholder implementation
-
-            // In a real implementation, this information would be included with the question from DeepSeek
-            // and we would extract it here
-
-            // For fill-in-gap questions
-            if (question.Type == "fill-in-gap")
-            {
-                if (question.Category == "numerical")
-                {
-                    // Example logic for numerical sequences
-                    if (question.Text.Contains("1, 3, _, 7, 9"))
-                    {
-                        return "5";
-                    }
-                    else if (question.Text.Contains("3, 6, 12, 24, _"))
-                    {
-                        return "48";
-                    }
-                }
-                else if (question.Category == "verbal")
-                {
-                    // Example for verbal analogies
-                    if (question.Text.Contains("Book is to Reading as Fork is to"))
-                    {
-                        return "Eating";
-                    }
-                }
-            }
-            // For multiple-choice questions
-            else if (question.Type == "multiple-choice" && question.Options?.Count > 0)
-            {
-                // In a real implementation, we'd have the correct answer index
-                // For now, we'll select a random option as the "correct" answer
-                int randomIndex = _random.Next(question.Options.Count);
-                return question.Options[randomIndex];
-            }
-            // For memory-pair questions
-            else if (question.Type == "memory-pair")
-            {
-                // Format: "pair-0-word-1:apple,pair-1-word-0:mountain,..."
-                List<string> answerParts = new List<string>();
-
-                for (int i = 0; i < question.Pairs.Count; i++)
-                {
-                    foreach (int missingIdx in question.MissingIndices[i])
-                    {
-                        answerParts.Add($"pair-{i}-word-{missingIdx}:{question.Pairs[i][missingIdx]}");
-                    }
-                }
-
-                return string.Join(",", answerParts);
-            }
-
-            // Default case
-            return "placeholder_answer";
         }
     }
 }

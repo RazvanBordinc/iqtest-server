@@ -46,7 +46,7 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(provider =>
     return ConnectionMultiplexer.Connect(redisConnection);
 });
 
-// HttpClient for DeepSeek API
+// HttpClient for openAI API
 builder.Services.AddHttpClient();
 
 // CORS policy with container-specific origins
@@ -75,7 +75,7 @@ builder.Services.AddScoped<LeaderboardService>();
 builder.Services.AddScoped<QuestionGeneratorService>();
 builder.Services.AddScoped<AnswerValidatorService>();
 builder.Services.AddScoped<RedisService>();
-builder.Services.AddScoped<DeepSeekService>();
+builder.Services.AddScoped<OpenAIService>();
 
 // Add background service for question generation
 builder.Services.AddHostedService<BackgroundQuestionGenerationService>();
