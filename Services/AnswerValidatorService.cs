@@ -86,23 +86,54 @@ namespace IqTest_server.Services
 
         private bool CheckMemoryAnswer(AnswerDto answer, QuestionDto question, string correctAnswer)
         {
-            // For memory questions, the value should be a JSON object/Dictionary
-            if (answer.Value is JsonElement jsonElement)
+            try
             {
-                try
+                Dictionary<string, string> memoryAnswers;
+
+                if (answer.Value is JsonElement jsonElement)
                 {
-                    var memoryAnswers = JsonSerializer.Deserialize<Dictionary<string, string>>(jsonElement.GetRawText());
-                    return CheckMemoryAnswerWithExpected(memoryAnswers, question, correctAnswer);
+                    // Get JSON as string
+                    string jsonString = jsonElement.GetRawText();
+
+                    try
+                    {
+                        // Try direct deserialization first
+                        memoryAnswers = JsonSerializer.Deserialize<Dictionary<string, string>>(jsonString);
+                    }
+                    catch
+                    {
+                        // If that fails, try to parse as a nested object
+                        var nestedObj = JsonSerializer.Deserialize<MemoryAnswerWrapper>(jsonString);
+                        if (nestedObj?.value != null)
+                        {
+                            // Extract the inner dictionary
+                            memoryAnswers = nestedObj.value;
+                        }
+                        else
+                        {
+                            _logger.LogError("Invalid memory answer format: {Json}", jsonString);
+                            return false;
+                        }
+                    }
                 }
-                catch (Exception ex)
+                else
                 {
-                    _logger.LogError(ex, "Error parsing memory answer");
+                    _logger.LogError("Memory answer has unexpected type: {Type}", answer.Value?.GetType());
                     return false;
                 }
-            }
-            return false;
-        }
 
+                return CheckMemoryAnswerWithExpected(memoryAnswers, question, correctAnswer);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error parsing memory answer");
+                return false;
+            }
+        }
+        private class MemoryAnswerWrapper
+        {
+            public Dictionary<string, string> value { get; set; }
+        }
         private bool CheckMemoryAnswerWithExpected(Dictionary<string, string> userAnswers, QuestionDto question, string correctAnswer)
         {
             // Parse expected answers from correctAnswer string
