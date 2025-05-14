@@ -53,6 +53,13 @@ builder.Services.AddCors(options =>
     });
 });
 
+// Redis for caching and rate limiting
+builder.Services.AddStackExchangeRedisCache(options =>
+{
+    options.Configuration = builder.Configuration["Redis:ConnectionString"] ?? "localhost:6379";
+    options.InstanceName = "IqTest";
+});
+
 // Services
 builder.Services.AddSingleton<PasswordHasher>();
 builder.Services.AddSingleton<JwtHelper>();
@@ -63,6 +70,7 @@ builder.Services.AddScoped<LeaderboardService>();
 builder.Services.AddScoped<QuestionGeneratorService>();
 builder.Services.AddScoped<AnswerValidatorService>();
 builder.Services.AddScoped<GithubService>();
+builder.Services.AddScoped<RateLimitingService>();
 
 
 // JWT Authentication with custom token extraction
@@ -196,8 +204,17 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
+// Security headers
+app.UseMiddleware<SecurityHeadersMiddleware>();
+
 // CRITICAL: CORS must come before authentication
 app.UseCors("AllowSpecificOrigin");
+
+// CSRF protection
+app.UseMiddleware<CsrfProtectionMiddleware>();
+
+// Rate limiting middleware
+app.UseMiddleware<RateLimitingMiddleware>();
 
 app.UseAuthentication();
 app.UseAuthorization();

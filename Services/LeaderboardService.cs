@@ -48,6 +48,7 @@ namespace IqTest_server.Services
                     result.Add(new LeaderboardEntryDto
                     {
                         Rank = i + 1,
+                        UserId = score.UserId,
                         Username = score.Username,
                         Score = (int)Math.Round(score.AvgScore),
                         TestsCompleted = score.TotalTests,
@@ -84,6 +85,7 @@ namespace IqTest_server.Services
                     .Take(limit)
                     .Select(l => new LeaderboardEntryDto
                     {
+                        UserId = l.UserId,
                         Rank = l.Rank,
                         Username = l.User.Username,
                         Score = l.Score,

@@ -32,6 +32,63 @@ namespace IqTest_server.Services
             _configuration = configuration;
         }
 
+        public async Task<bool> CheckUsernameExistsAsync(string username)
+        {
+            return await _context.Users.AnyAsync(u => u.Username == username);
+        }
+
+        public async Task<(bool Success, string Message, UserDto User)> CreateUserAsync(CreateUserDto model)
+        {
+            try 
+            {
+                // Check if username already exists
+                if (await _context.Users.AnyAsync(u => u.Username == model.Username))
+                {
+                    return (false, "Username already taken", null);
+                }
+
+                // Generate a unique email for the user (since we're not collecting emails)
+                var email = $"{model.Username.ToLower()}@iqtest.local";
+                
+                // Create new user
+                var user = new User
+                {
+                    Username = model.Username,
+                    Email = email,
+                    Age = model.Age,
+                    Gender = model.Gender,
+                    PasswordHash = _passwordHasher.HashPassword(model.Password),
+                    CreatedAt = DateTime.UtcNow
+                };
+
+                // Generate refresh token
+                user.RefreshToken = _jwtHelper.GenerateRefreshToken();
+                user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
+
+                _context.Users.Add(user);
+                await _context.SaveChangesAsync();
+
+                // Generate access token
+                var token = _jwtHelper.GenerateAccessToken(user);
+
+                // Return user data and token
+                return (true, "User created successfully", new UserDto
+                {
+                    Id = user.Id,
+                    Username = user.Username,
+                    Email = user.Email,
+                    Age = user.Age,
+                    Gender = user.Gender,
+                    Token = token
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during user creation");
+                return (false, "User creation failed due to a server error", null);
+            }
+        }
+
         public async Task<(bool Success, string Message, UserDto User)> RegisterAsync(RegisterRequestDto model)
         {
             try
@@ -118,7 +175,9 @@ namespace IqTest_server.Services
                     Id = user.Id,
                     Username = user.Username,
                     Email = user.Email,
-                    Token = token
+                    Token = token,
+                    Gender = user.Gender,
+                    Age = user.Age
                 }, user.RefreshToken);
             }
             catch (Exception ex)
@@ -155,7 +214,9 @@ namespace IqTest_server.Services
                     Id = user.Id,
                     Username = user.Username,
                     Email = user.Email,
-                    Token = newAccessToken
+                    Token = newAccessToken,
+                    Gender = user.Gender,
+                    Age = user.Age
                 }, newRefreshToken);
             }
             catch (Exception ex)

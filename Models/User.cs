@@ -20,6 +20,13 @@ namespace IqTest_server.Models
         [Required]
         public string PasswordHash { get; set; }
 
+        [Required]
+        [MaxLength(10)]
+        public string Gender { get; set; }
+
+        [Required]
+        public int Age { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime? LastLoginAt { get; set; }
 

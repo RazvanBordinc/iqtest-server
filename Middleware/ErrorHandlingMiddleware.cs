@@ -53,9 +53,34 @@ namespace IqTest_server.Middleware
             context.Response.ContentType = "application/json";
             context.Response.StatusCode = (int)code;
 
+            // Security: Don't expose internal error details to clients
+            var isProduction = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Production";
+            
             if (string.IsNullOrEmpty(result))
             {
-                result = JsonSerializer.Serialize(new { message = exception.Message });
+                if (isProduction)
+                {
+                    // Generic error messages in production
+                    result = JsonSerializer.Serialize(new { 
+                        message = code switch
+                        {
+                            HttpStatusCode.BadRequest => "Invalid request",
+                            HttpStatusCode.Unauthorized => "Authentication required",
+                            HttpStatusCode.NotFound => "Resource not found",
+                            _ => "An error occurred"
+                        },
+                        statusCode = (int)code
+                    });
+                }
+                else
+                {
+                    // More detailed errors in development
+                    result = JsonSerializer.Serialize(new { 
+                        message = exception.Message,
+                        statusCode = (int)code,
+                        type = exception.GetType().Name
+                    });
+                }
             }
 
             return context.Response.WriteAsync(result);
