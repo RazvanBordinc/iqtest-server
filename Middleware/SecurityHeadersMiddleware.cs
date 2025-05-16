@@ -28,7 +28,7 @@ namespace IqTest_server.Middleware
                 "style-src 'self' 'unsafe-inline'; " +
                 "img-src 'self' data: https:; " +
                 "font-src 'self' data:; " +
-                "connect-src 'self' https:; " +
+                "connect-src 'self' http://localhost:3000 http://localhost:5164 https:; " +
                 "frame-ancestors 'none';";
 
             // Remove sensitive headers

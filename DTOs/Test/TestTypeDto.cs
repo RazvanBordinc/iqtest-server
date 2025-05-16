@@ -2,12 +2,12 @@ namespace IqTest_server.DTOs.Test
 {
     public class TestTypeDto
     {
-        public string Id { get; set; }
-        public string Title { get; set; }
-        public string Description { get; set; }
-        public string LongDescription { get; set; }
-        public string Icon { get; set; }
-        public string Color { get; set; }
-        public TestStatsDto Stats { get; set; }
+        public string Id { get; set; } = string.Empty;
+        public string Title { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public string LongDescription { get; set; } = string.Empty;
+        public string Icon { get; set; } = string.Empty;
+        public string Color { get; set; } = string.Empty;
+        public TestStatsDto Stats { get; set; } = new TestStatsDto();
     }
 }

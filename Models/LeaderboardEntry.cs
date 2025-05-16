@@ -33,7 +33,7 @@ namespace IqTest_server.Models
         public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
 
         // Navigation properties
-        public virtual User User { get; set; }
-        public virtual TestType TestType { get; set; }
+        public virtual User User { get; set; } = null!;
+        public virtual TestType TestType { get; set; } = null!;
     }
 }

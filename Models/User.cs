@@ -10,15 +10,15 @@ namespace IqTest_server.Models
 
         [Required]
         [MaxLength(100)]
-        public string Username { get; set; }
+        public string Username { get; set; } = string.Empty;
 
         [Required]
         [MaxLength(255)]
         [EmailAddress]
-        public string Email { get; set; }
+        public string Email { get; set; } = string.Empty;
 
         [Required]
-        public string PasswordHash { get; set; }
+        public string PasswordHash { get; set; } = string.Empty;
 
         [MaxLength(100)]
         public string? Country { get; set; }
@@ -29,11 +29,12 @@ namespace IqTest_server.Models
         public DateTime? LastLoginAt { get; set; }
 
         // Refresh token for JWT auth
-        public string RefreshToken { get; set; }
+        public string RefreshToken { get; set; } = string.Empty;
         public DateTime? RefreshTokenExpiryTime { get; set; }
 
         // Navigation properties
-        public virtual ICollection<TestResult> TestResults { get; set; }
-        public virtual ICollection<LeaderboardEntry> LeaderboardEntries { get; set; }
+        public virtual ICollection<TestResult> TestResults { get; set; } = new List<TestResult>();
+        public virtual ICollection<LeaderboardEntry> LeaderboardEntries { get; set; } = new List<LeaderboardEntry>();
+        public virtual ICollection<Answer> Answers { get; set; } = new List<Answer>();
     }
 }

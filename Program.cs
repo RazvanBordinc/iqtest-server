@@ -47,7 +47,10 @@ builder.Services.AddCors(options =>
         policy.WithOrigins(
                 "http://localhost:3000",
                 "http://frontend:3000",  // Docker container service name
-                "http://host.docker.internal:3000"  // Docker host networking
+                "http://host.docker.internal:3000",  // Docker host networking
+                "http://127.0.0.1:3000",  // Loopback address
+                "https://localhost:3000",  // HTTPS variant
+                "https://127.0.0.1:3000"  // HTTPS loopback
             )
             .AllowAnyMethod()
             .AllowAnyHeader()

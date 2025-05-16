@@ -76,8 +76,10 @@ namespace IqTest_server.Middleware
         private bool ValidateCsrfToken(HttpContext context)
         {
             // Skip CSRF validation for API endpoints (they use JWT)
-            if (context.Request.Path.StartsWithSegments("/api"))
+            var path = context.Request.Path.Value?.ToLowerInvariant() ?? "";
+            if (path.StartsWith("/api/"))
             {
+                _logger.LogInformation($"Skipping CSRF validation for API path: {path}");
                 return true;
             }
 
