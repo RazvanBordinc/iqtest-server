@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Text.Json;
@@ -10,28 +10,24 @@ using System.Linq;
 
 namespace IqTest_server.Services
 {
-
-
     public class GithubService
     {
         private readonly HttpClient _httpClient;
         private readonly ILogger<GithubService> _logger;
         private readonly IConfiguration _configuration;
+        private readonly RedisService _redisService;
         private readonly string _rawGithubBaseUrl;
-
-        // Cache questions in memory to reduce GitHub API calls
-        private readonly Dictionary<string, List<QuestionSetItem>> _questionCache = new();
-        private readonly Dictionary<string, DateTime> _cacheTimestamps = new();
-        private readonly TimeSpan _cacheDuration = TimeSpan.FromHours(6); // Cache for 6 hours
 
         public GithubService(
             HttpClient httpClient,
             ILogger<GithubService> logger,
-            IConfiguration configuration)
+            IConfiguration configuration,
+            RedisService redisService)
         {
             _httpClient = httpClient;
             _logger = logger;
             _configuration = configuration;
+            _redisService = redisService;
 
             // GitHub raw content URL (converts GitHub UI URLs to raw content URLs)
             _rawGithubBaseUrl = _configuration["GitHub:BaseUrl"] ??
@@ -42,23 +38,24 @@ namespace IqTest_server.Services
         {
             public DTOs.Test.QuestionDto Question { get; set; }
             public string CorrectAnswer { get; set; }
-            public float Weight { get; set; } = 1.0f; // Default weight
+            public int Weight { get; set; } // Difficulty weight from 2-8
         }
+
         public async Task<List<QuestionSetItem>> GetQuestionsAsync(string testTypeId, int count = 20)
         {
             try
             {
-                // Check in-memory cache first
-                if (_questionCache.TryGetValue(testTypeId, out var cachedQuestions) &&
-                    _cacheTimestamps.TryGetValue(testTypeId, out var timestamp))
+                // First check Redis cache
+                string redisKey = $"questions:{testTypeId}";
+                var cachedQuestions = await _redisService.GetAsync<List<QuestionSetItem>>(redisKey);
+                
+                if (cachedQuestions != null && cachedQuestions.Count > 0)
                 {
-                    if (DateTime.UtcNow - timestamp < _cacheDuration)
-                    {
-                        _logger.LogInformation("Returning cached questions for test type: {TestTypeId}", testTypeId);
-                        return cachedQuestions;
-                    }
+                    _logger.LogInformation("Returning cached questions from Redis for test type: {TestTypeId}", testTypeId);
+                    return cachedQuestions.Take(count).ToList();
                 }
 
+                // If not in cache, fetch from GitHub
                 string filename;
                 switch (testTypeId)
                 {
@@ -88,16 +85,13 @@ namespace IqTest_server.Services
                 var questions = JsonSerializer.Deserialize<List<QuestionDto>>(content,
                     new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
-                // Convert to QuestionSetItem format (includes correct answers and weights)
+                // Convert to QuestionSetItem format with weights
                 var result = new List<QuestionSetItem>();
                 if (questions != null)
                 {
-                    // Take only the requested number of questions, or all if less than requested
-                    var subset = questions.Count <= count ? questions : questions.Take(count).ToList();
-
-                    for (int i = 0; i < subset.Count; i++)
+                    for (int i = 0; i < questions.Count; i++)
                     {
-                        var question = subset[i];
+                        var question = questions[i];
 
                         // Ensure question has an ID
                         if (question.Id <= 0)
@@ -108,10 +102,8 @@ namespace IqTest_server.Services
                         // Extract correctAnswer from question properties
                         string correctAnswer = question.CorrectAnswer;
 
-                        // Set default weight based on question type
-                        float weight = 1.0f;
-                        if (question.Type == "fill-in-gap") weight = 1.5f;
-                        if (question.Type == "memory-pair") weight = 2.0f;
+                        // Calculate weight based on question type and complexity
+                        int weight = CalculateQuestionWeight(question);
 
                         result.Add(new QuestionSetItem
                         {
@@ -121,20 +113,46 @@ namespace IqTest_server.Services
                         });
                     }
 
-                    // Cache the results
-                    _questionCache[testTypeId] = result;
-                    _cacheTimestamps[testTypeId] = DateTime.UtcNow;
+                    // Store in Redis with 24-hour expiration
+                    await _redisService.SetAsync(redisKey, result, TimeSpan.FromHours(24));
                 }
 
-                _logger.LogInformation("Successfully fetched {Count} questions for test type: {TestTypeId}",
+                _logger.LogInformation("Successfully fetched and cached {Count} questions for test type: {TestTypeId}",
                     result.Count, testTypeId);
-                return result;
+                
+                return result.Take(count).ToList();
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error fetching questions from GitHub for test type: {TestTypeId}", testTypeId);
                 throw;
             }
+        }
+
+        private int CalculateQuestionWeight(QuestionDto question)
+        {
+            // Base weight depending on question type
+            int baseWeight = question.Type switch
+            {
+                "multiple-choice" => 3,
+                "fill-in-gap" => 5,
+                "memory-pair" => 6,
+                _ => 3
+            };
+
+            // Adjust based on complexity (you can enhance this logic based on question content)
+            if (question.Options != null && question.Options.Count > 5)
+            {
+                baseWeight += 1;
+            }
+
+            if (question.Type == "memory-pair" && question.Pairs != null && question.Pairs.Count > 5)
+            {
+                baseWeight += 1;
+            }
+
+            // Ensure weight is between 2 and 8
+            return Math.Max(2, Math.Min(8, baseWeight));
         }
     }
 }

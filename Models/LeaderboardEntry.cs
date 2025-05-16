@@ -20,6 +20,15 @@ namespace IqTest_server.Models
         public float Percentile { get; set; }
 
         public int TestsCompleted { get; set; }
+        
+        public string? AverageTime { get; set; } // Format: "2m 30s"
+        
+        public string? BestTime { get; set; } // Format: "2m 30s"
+        
+        public int? IQScore { get; set; } // Only for comprehensive test
+        
+        [MaxLength(100)]
+        public string? Country { get; set; }
 
         public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
 

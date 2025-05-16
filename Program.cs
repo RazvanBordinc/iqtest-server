@@ -8,7 +8,7 @@ using IqTest_server.Services;
 using IqTest_server.Utilities;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
- 
+using StackExchange.Redis;
 using Microsoft.IdentityModel.Tokens;
  
 
@@ -31,6 +31,8 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
         builder.Configuration.GetConnectionString("DefaultConnection"),
         sqlServerOptions => sqlServerOptions.EnableRetryOnFailure()
     )
+    .ConfigureWarnings(warnings => 
+        warnings.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning))
 );
 
  
@@ -60,6 +62,11 @@ builder.Services.AddStackExchangeRedisCache(options =>
     options.InstanceName = "IqTest";
 });
 
+// Add Redis connection multiplexer
+var redisConnectionString = builder.Configuration["Redis:ConnectionString"] ?? "localhost:6379";
+builder.Services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(sp =>
+    StackExchange.Redis.ConnectionMultiplexer.Connect(redisConnectionString));
+
 // Services
 builder.Services.AddSingleton<PasswordHasher>();
 builder.Services.AddSingleton<JwtHelper>();
@@ -69,8 +76,14 @@ builder.Services.AddScoped<TestService>();
 builder.Services.AddScoped<LeaderboardService>();
 builder.Services.AddScoped<QuestionGeneratorService>();
 builder.Services.AddScoped<AnswerValidatorService>();
+builder.Services.AddScoped<RedisService>();
 builder.Services.AddScoped<GithubService>();
 builder.Services.AddScoped<RateLimitingService>();
+builder.Services.AddScoped<ScoreCalculationService>();
+builder.Services.AddScoped<ProfileService>();
+
+// Background services
+builder.Services.AddHostedService<QuestionsRefreshService>();
 
 
 // JWT Authentication with custom token extraction

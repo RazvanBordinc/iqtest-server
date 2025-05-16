@@ -44,15 +44,36 @@ namespace IqTest_server.Controllers
         [HttpGet("questions/{testTypeId}")]
         public async Task<IActionResult> GetTestQuestions(string testTypeId)
         {
-            // Add more logging here
             var userId = GetUserId();
             _logger.LogInformation("GetTestQuestions called with testTypeId: {TestTypeId}, userId: {UserId}",
                 testTypeId, userId);
+                
+            // Check if user can take this test
+            var canTakeTest = await _testService.CanUserTakeTestAsync(userId, testTypeId);
+            if (!canTakeTest)
+            {
+                var timeUntilNext = await _testService.GetTimeUntilNextAttemptAsync(userId, testTypeId);
+                return StatusCode(403, new { message = "You must wait 24 hours between test attempts", timeUntilNext });
+            }
 
-            // Rest of the code...
             var result = await _testService.GenerateQuestionsForTestAsync(testTypeId);
             _logger.LogInformation("Returning {Count} questions", result.Questions.Count);
             return Ok(result.Questions);
+        }
+        
+        [HttpGet("availability/{testTypeId}")]
+        public async Task<IActionResult> CheckTestAvailability(string testTypeId)
+        {
+            var userId = GetUserId();
+            var canTakeTest = await _testService.CanUserTakeTestAsync(userId, testTypeId);
+            var timeUntilNext = await _testService.GetTimeUntilNextAttemptAsync(userId, testTypeId);
+            
+            return Ok(new 
+            {
+                canTake = canTakeTest,
+                timeUntilNext = timeUntilNext?.TotalSeconds,
+                message = canTakeTest ? "Test available" : "You must wait 24 hours between test attempts"
+            });
         }
 
         [HttpPost("submit")]

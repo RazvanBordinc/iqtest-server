@@ -21,7 +21,7 @@ namespace IqTest_server.Services
             List<AnswerDto> userAnswers,
             List<QuestionDto> questions,
             Dictionary<int, string> correctAnswers,
-            Dictionary<int, float> questionWeights,
+            Dictionary<int, int> questionWeights,
             TimeSpan timeTaken,
             TimeSpan timeLimit)
         {
@@ -43,20 +43,19 @@ namespace IqTest_server.Services
                 var question = questions.FirstOrDefault(q => q.Id == answer.QuestionId);
                 if (question == null) continue;
 
-                // Default weight is 1.0 if not specified
-                float weight = 1.0f;
-                if (questionWeights.TryGetValue(question.Id, out float definedWeight))
+                // Default weight is 3 if not specified (from 2-8 scale)
+                int weight = 3;
+                if (questionWeights.TryGetValue(question.Id, out int definedWeight))
                 {
                     weight = definedWeight;
                 }
 
-                int weightedPoints = (int)Math.Round(weight * 100);
-                totalWeightedPoints += weightedPoints;
+                totalWeightedPoints += weight;
 
                 if (CheckAnswer(answer, question, correctAnswers))
                 {
                     correctCount++;
-                    weightedCorrectPoints += weightedPoints;
+                    weightedCorrectPoints += weight;
                 }
             }
 

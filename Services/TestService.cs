@@ -17,19 +17,20 @@ namespace IqTest_server.Services
         private readonly ILogger<TestService> _logger;
         private readonly QuestionService _questionService;
         private readonly AnswerValidatorService _answerValidator;
- 
+        private readonly RedisService _redisService;
 
         public TestService(
             ApplicationDbContext context,
             ILogger<TestService> logger,
             QuestionService questionService,
-            AnswerValidatorService answerValidator )
+            AnswerValidatorService answerValidator,
+            RedisService redisService)
         {
             _context = context;
             _logger = logger;
             _questionService = questionService;
             _answerValidator = answerValidator;
- 
+            _redisService = redisService;
         }
 
         public async Task<List<TestTypeDto>> GetAllTestTypesAsync()
@@ -55,6 +56,55 @@ namespace IqTest_server.Services
             {
                 _logger.LogError(ex, "Error retrieving test type: {TestTypeId}", testTypeId);
                 throw;
+            }
+        }
+
+        public async Task<bool> CanUserTakeTestAsync(int userId, string testTypeId)
+        {
+            try
+            {
+                var key = $"test_attempt:{userId}:{testTypeId}";
+                var lastAttempt = await _redisService.GetAsync<DateTime?>(key);
+                
+                if (!lastAttempt.HasValue)
+                {
+                    return true; // No previous attempt
+                }
+                
+                var timeSinceLastAttempt = DateTime.UtcNow - lastAttempt.Value;
+                return timeSinceLastAttempt.TotalHours >= 24;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error checking if user can take test");
+                return true; // Allow test in case of error
+            }
+        }
+        
+        public async Task<TimeSpan?> GetTimeUntilNextAttemptAsync(int userId, string testTypeId)
+        {
+            try
+            {
+                var key = $"test_attempt:{userId}:{testTypeId}";
+                var lastAttempt = await _redisService.GetAsync<DateTime?>(key);
+                
+                if (!lastAttempt.HasValue)
+                {
+                    return null; // No cooldown
+                }
+                
+                var timeSinceLastAttempt = DateTime.UtcNow - lastAttempt.Value;
+                if (timeSinceLastAttempt.TotalHours >= 24)
+                {
+                    return null; // Cooldown expired
+                }
+                
+                return TimeSpan.FromHours(24) - timeSinceLastAttempt;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting time until next attempt");
+                return null;
             }
         }
 
@@ -137,64 +187,44 @@ namespace IqTest_server.Services
                     Duration = FormatDuration(timeTaken),
                     QuestionsCompleted = submission.Answers.Count,
                     Accuracy = accuracy,
-                    CompletedAt = DateTime.UtcNow,
-                    Answers = new List<Answer>()
+                    IQScore = null, // Will calculate for comprehensive test only
+                    CompletedAt = DateTime.UtcNow
                 };
 
-                // Add individual answers
-                foreach (var answer in submission.Answers)
-                {
-                    var question = questionsList.FirstOrDefault(q => q.Id == answer.QuestionId);
-                    if (question == null) continue;
-
-                    // Determine if the answer is correct
-                    bool isCorrect = false;
-                    if (correctAnswers.TryGetValue(answer.QuestionId, out var correctAnswer))
-                    {
-                        // Simple check for demonstration - the full validation logic is in AnswerValidatorService
-                        if (question.Type == "multiple-choice")
-                        {
-                            if (answer.Value is long longValue && longValue >= 0 && longValue < question.Options.Count)
-                            {
-                                isCorrect = question.Options[(int)longValue] == correctAnswer;
-                            }
-                        }
-                        else
-                        {
-                            isCorrect = answer.Value?.ToString()?.Trim().ToLower() == correctAnswer.Trim().ToLower();
-                        }
-                    }
-
-                    testResult.Answers.Add(new Answer
-                    {
-                        QuestionId = answer.QuestionId,
-                        UserAnswer = JsonSerializer.Serialize(answer.Value),
-                        Type = answer.Type,
-                        IsCorrect = isCorrect
-                    });
-                }
-
-                // Add to database
+                // Add to database without answers (they don't have foreign key references to questions table)
                 _context.TestResults.Add(testResult);
                 await _context.SaveChangesAsync();
 
                 // Update leaderboard
                 await UpdateLeaderboardAsync(userId, testResult);
 
+                // Get the updated leaderboard entry to fetch the calculated percentile
+                var updatedEntry = await _context.LeaderboardEntries
+                    .FirstOrDefaultAsync(l => l.UserId == userId && l.TestTypeId == testResult.TestTypeId);
+
                 // Return the result
                 var resultDto = new TestResultDto
                 {
                     Id = testResult.Id,
                     Score = testResult.Score,
-                    Percentile = testResult.Percentile,
+                    Percentile = updatedEntry?.Percentile ?? 0,
                     TestTypeId = submission.TestTypeId,
                     TestTitle = testType.Title,
                     Duration = testResult.Duration,
                     QuestionsCompleted = testResult.QuestionsCompleted,
                     Accuracy = testResult.Accuracy,
-                    CompletedAt = testResult.CompletedAt
+                    CompletedAt = testResult.CompletedAt,
+                    IQScore = updatedEntry?.IQScore
                 };
 
+                // Store test attempt in Redis
+                var attemptKey = $"test_attempt:{userId}:{submission.TestTypeId}";
+                await _redisService.SetAsync(attemptKey, DateTime.UtcNow, TimeSpan.FromHours(24));
+                
+                // Invalidate the cached test count for this test type so it gets refreshed
+                var testCountCacheKey = $"test_completed_count:{submission.TestTypeId}";
+                await _redisService.RemoveAsync(testCountCacheKey);
+                
                 _logger.LogInformation("Completed test submission for user {UserId} with score {Score}",
                     userId, score);
 
@@ -219,12 +249,18 @@ namespace IqTest_server.Services
                 // If no entry exists, create a new one
                 if (entry == null)
                 {
+                    // Get user info for country
+                    var user = await _context.Users.FindAsync(userId);
                     entry = new LeaderboardEntry
                     {
                         UserId = userId,
                         TestTypeId = testResult.TestTypeId,
                         Score = testResult.Score,
                         TestsCompleted = 1,
+                        BestTime = testResult.Duration,
+                        AverageTime = testResult.Duration,
+                        IQScore = null, // Will be calculated later for comprehensive tests
+                        Country = user?.Country ?? "United States",
                         LastUpdated = DateTime.UtcNow
                     };
                     _context.LeaderboardEntries.Add(entry);
@@ -232,8 +268,19 @@ namespace IqTest_server.Services
                 else
                 {
                     // Update existing entry - use the highest score achieved
+                    bool isHigherScore = testResult.Score > entry.Score;
                     entry.Score = Math.Max(entry.Score, testResult.Score);
                     entry.TestsCompleted++;
+                    
+                    // Update best time if this is the best score or first test
+                    if (isHigherScore || string.IsNullOrEmpty(entry.BestTime))
+                    {
+                        entry.BestTime = testResult.Duration;
+                    }
+                    
+                    // Calculate average time (simple approach - just use most recent for now)
+                    entry.AverageTime = testResult.Duration;
+                    
                     entry.LastUpdated = DateTime.UtcNow;
                     _context.LeaderboardEntries.Update(entry);
                 }
@@ -249,10 +296,20 @@ namespace IqTest_server.Services
                 {
                     allEntries[i].Rank = i + 1;
                     allEntries[i].Percentile = 100f * (1f - (float)(i + 1) / allEntries.Count);
+                    
+                    // Calculate IQ score only for comprehensive test (testTypeId = 4)
+                    if (allEntries[i].TestTypeId == 4)
+                    {
+                        allEntries[i].IQScore = CalculateIQScore(allEntries[i].Percentile);
+                    }
                 }
 
-                // Update test result percentile
+                // Update test result percentile and IQ
                 testResult.Percentile = entry.Percentile;
+                if (testResult.TestTypeId == 4)
+                {
+                    testResult.IQScore = entry.IQScore;
+                }
 
                 await _context.SaveChangesAsync();
             }
@@ -320,6 +377,81 @@ namespace IqTest_server.Services
             {
                 return $"{duration.Minutes}m {duration.Seconds}s";
             }
+        }
+        
+        private int CalculateIQScore(float percentile)
+        {
+            // Convert percentile to IQ score using normal distribution
+            // IQ follows a normal distribution with mean 100 and standard deviation 15
+            if (percentile <= 0) return 70;
+            if (percentile >= 100) return 130;
+            
+            // Use approximation of inverse normal distribution function
+            double z = InvNorm(percentile / 100.0);
+            return (int)Math.Round(100 + z * 15);
+        }
+        
+        private double InvNorm(double p)
+        {
+            // Approximation of inverse normal distribution function
+            // Using the algorithm by Peter John Acklam
+            if (p <= 0) return double.NegativeInfinity;
+            if (p >= 1) return double.PositiveInfinity;
+            
+            const double a1 = -3.969683028665376e+01;
+            const double a2 = 2.209460984245205e+02;
+            const double a3 = -2.759285104469687e+02;
+            const double a4 = 1.383577518672690e+02;
+            const double a5 = -3.066479806614716e+01;
+            const double a6 = 2.506628277459239e+00;
+            
+            const double b1 = -5.447609879822406e+01;
+            const double b2 = 1.615858368580409e+02;
+            const double b3 = -1.556989798598866e+02;
+            const double b4 = 6.680131188771972e+01;
+            const double b5 = -1.328068155288572e+01;
+            
+            const double c1 = -7.784894002430293e-03;
+            const double c2 = -3.223964580411365e-01;
+            const double c3 = -2.400758277161838e+00;
+            const double c4 = -2.549732539343734e+00;
+            const double c5 = 4.374664141464968e+00;
+            const double c6 = 2.938163982698783e+00;
+            
+            const double d1 = 7.784695709041462e-03;
+            const double d2 = 3.224671290700398e-01;
+            const double d3 = 2.445134137142996e+00;
+            const double d4 = 3.754408661907416e+00;
+            
+            const double p_low = 0.02425;
+            const double p_high = 1 - p_low;
+            
+            double x, q, r;
+            
+            if (p < p_low)
+            {
+                // Lower region
+                q = Math.Sqrt(-2 * Math.Log(p));
+                x = (((((c1 * q + c2) * q + c3) * q + c4) * q + c5) * q + c6) / 
+                    ((((d1 * q + d2) * q + d3) * q + d4) * q + 1);
+            }
+            else if (p <= p_high)
+            {
+                // Central region
+                q = p - 0.5;
+                r = q * q;
+                x = (((((a1 * r + a2) * r + a3) * r + a4) * r + a5) * r + a6) * q / 
+                    (((((b1 * r + b2) * r + b3) * r + b4) * r + b5) * r + 1);
+            }
+            else
+            {
+                // Upper region
+                q = Math.Sqrt(-2 * Math.Log(1 - p));
+                x = -(((((c1 * q + c2) * q + c3) * q + c4) * q + c5) * q + c6) / 
+                     ((((d1 * q + d2) * q + d3) * q + d4) * q + 1);
+            }
+            
+            return x;
         }
     }
 }

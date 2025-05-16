@@ -26,8 +26,11 @@ namespace IqTest_server.Services
         {
             try
             {
+                // Get the correct question count for each test type
+                int questionCount = GetQuestionCount(testTypeId);
+                
                 // Fetch questions directly from GitHub
-                var questionItems = await _githubService.GetQuestionsAsync(testTypeId);
+                var questionItems = await _githubService.GetQuestionsAsync(testTypeId, questionCount);
 
                 if (questionItems != null && questionItems.Count > 0)
                 {
@@ -38,6 +41,8 @@ namespace IqTest_server.Services
                     var questions = new List<QuestionDto>();
                     foreach (var item in questionItems)
                     {
+                        // Add the weight to the question DTO
+                        item.Question.Weight = item.Weight;
                         questions.Add(item.Question);
                     }
 
@@ -114,19 +119,20 @@ namespace IqTest_server.Services
         }
 
         // Get question weights (for scoring)
-        public async Task<Dictionary<int, float>> GetQuestionWeightsAsync(string testTypeId)
+        public async Task<Dictionary<int, int>> GetQuestionWeightsAsync(string testTypeId)
         {
             try
             {
-                var questionItems = await _githubService.GetQuestionsAsync(testTypeId);
+                int questionCount = GetQuestionCount(testTypeId);
+                var questionItems = await _githubService.GetQuestionsAsync(testTypeId, questionCount);
 
                 if (questionItems == null || questionItems.Count == 0)
                 {
                     _logger.LogWarning("No questions found for test type: {TestTypeId}", testTypeId);
-                    return new Dictionary<int, float>();
+                    return new Dictionary<int, int>();
                 }
 
-                var weights = new Dictionary<int, float>();
+                var weights = new Dictionary<int, int>();
                 foreach (var item in questionItems)
                 {
                     weights[item.Question.Id] = item.Weight;
@@ -137,8 +143,20 @@ namespace IqTest_server.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error retrieving question weights for test type: {TestTypeId}", testTypeId);
-                return new Dictionary<int, float>();
+                return new Dictionary<int, int>();
             }
+        }
+
+        private int GetQuestionCount(string testTypeId)
+        {
+            return testTypeId switch
+            {
+                "number-logic" => 24,
+                "word-logic" => 28,
+                "memory" => 20,
+                "mixed" => 40,
+                _ => 20
+            };
         }
     }
 }

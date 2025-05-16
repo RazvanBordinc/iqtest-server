@@ -17,19 +17,22 @@ namespace IqTest_server.Services
         private readonly JwtHelper _jwtHelper;
         private readonly ILogger<AuthService> _logger;
         private readonly IConfiguration _configuration;
+        private readonly RedisService _redisService;
 
         public AuthService(
             ApplicationDbContext context,
             PasswordHasher passwordHasher,
             JwtHelper jwtHelper,
             ILogger<AuthService> logger,
-            IConfiguration configuration)
+            IConfiguration configuration,
+            RedisService redisService)
         {
             _context = context;
             _passwordHasher = passwordHasher;
             _jwtHelper = jwtHelper;
             _logger = logger;
             _configuration = configuration;
+            _redisService = redisService;
         }
 
         public async Task<bool> CheckUsernameExistsAsync(string username)
@@ -56,7 +59,7 @@ namespace IqTest_server.Services
                     Username = model.Username,
                     Email = email,
                     Age = model.Age,
-                    Gender = model.Gender,
+                    Country = model.Country,
                     PasswordHash = _passwordHasher.HashPassword(model.Password),
                     CreatedAt = DateTime.UtcNow
                 };
@@ -68,6 +71,9 @@ namespace IqTest_server.Services
                 _context.Users.Add(user);
                 await _context.SaveChangesAsync();
 
+                // Invalidate the total users count cache
+                await _redisService.RemoveAsync("total_users_count");
+
                 // Generate access token
                 var token = _jwtHelper.GenerateAccessToken(user);
 
@@ -78,7 +84,7 @@ namespace IqTest_server.Services
                     Username = user.Username,
                     Email = user.Email,
                     Age = user.Age,
-                    Gender = user.Gender,
+                    Country = user.Country,
                     Token = token
                 });
             }
@@ -120,6 +126,9 @@ namespace IqTest_server.Services
 
                 _context.Users.Add(user);
                 await _context.SaveChangesAsync();
+
+                // Invalidate the total users count cache
+                await _redisService.RemoveAsync("total_users_count");
 
                 // Generate access token
                 var token = _jwtHelper.GenerateAccessToken(user);
@@ -176,7 +185,7 @@ namespace IqTest_server.Services
                     Username = user.Username,
                     Email = user.Email,
                     Token = token,
-                    Gender = user.Gender,
+                    Country = user.Country,
                     Age = user.Age
                 }, user.RefreshToken);
             }
@@ -215,7 +224,7 @@ namespace IqTest_server.Services
                     Username = user.Username,
                     Email = user.Email,
                     Token = newAccessToken,
-                    Gender = user.Gender,
+                    Country = user.Country,
                     Age = user.Age
                 }, newRefreshToken);
             }

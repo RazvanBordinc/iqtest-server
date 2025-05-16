@@ -4,6 +4,7 @@ using IqTest_server.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace IqTest_server.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20250514144653_AddAgeAndCountryToUser")]
+    partial class AddAgeAndCountryToUser
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -82,19 +85,6 @@ namespace IqTest_server.Migrations
 
                     b.Property<int>("TestsCompleted")
                         .HasColumnType("int");
-
-                    b.Property<string>("AverageTime")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("BestTime")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<int?>("IQScore")
-                        .HasColumnType("int");
-
-                    b.Property<string>("Country")
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
 
                     b.Property<int>("UserId")
                         .HasColumnType("int");
@@ -189,9 +179,6 @@ namespace IqTest_server.Migrations
                         .HasColumnType("int");
 
                     b.Property<int>("Score")
-                        .HasColumnType("int");
-
-                    b.Property<int?>("IQScore")
                         .HasColumnType("int");
 
                     b.Property<int>("TestTypeId")
@@ -342,6 +329,7 @@ namespace IqTest_server.Migrations
                         .HasColumnType("nvarchar(255)");
 
                     b.Property<string>("Country")
+                        .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 

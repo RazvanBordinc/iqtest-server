@@ -270,8 +270,10 @@ namespace IqTest_server.Controllers
             };
 
             Response.Cookies.Append("username", user.Username, cookieOptions);
-            Response.Cookies.Append("age", user.Age.ToString(), cookieOptions);
-            Response.Cookies.Append("gender", user.Gender, cookieOptions);
+            if (user.Age.HasValue)
+                Response.Cookies.Append("age", user.Age.Value.ToString(), cookieOptions);
+            if (!string.IsNullOrEmpty(user.Country))
+                Response.Cookies.Append("country", user.Country, cookieOptions);
         }
 
         [HttpPost("disconnect")]

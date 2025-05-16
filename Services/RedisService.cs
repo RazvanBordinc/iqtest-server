@@ -5,6 +5,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using StackExchange.Redis;
 using System.Collections.Generic;
+using QuestionSetItem = IqTest_server.Services.GithubService.QuestionSetItem;
 
 namespace IqTest_server.Services
 {
@@ -141,11 +142,4 @@ namespace IqTest_server.Services
         }
     }
 
-    // Class to store questions with their correct answers
-    public class QuestionSetItem
-    {
-        public DTOs.Test.QuestionDto Question { get; set; }
-        public string CorrectAnswer { get; set; }
-        public float Weight { get; set; } = 1.0f; // Default weight
-    }
 }

@@ -13,5 +13,6 @@ namespace IqTest_server.DTOs.Test
         public int QuestionsCompleted { get; set; }
         public float Accuracy { get; set; }
         public DateTime CompletedAt { get; set; }
+        public int? IQScore { get; set; } // Only for comprehensive test
     }
 }

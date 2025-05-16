@@ -18,17 +18,19 @@ namespace IqTest_server.Models
 
         public float Percentile { get; set; }
 
-        public string Duration { get; set; }
+        public string? Duration { get; set; }
 
         public int QuestionsCompleted { get; set; }
 
         public float Accuracy { get; set; }
+        
+        public int? IQScore { get; set; } // Only for comprehensive test
 
         public DateTime CompletedAt { get; set; } = DateTime.UtcNow;
 
         // Navigation properties
         public virtual User User { get; set; }
         public virtual TestType TestType { get; set; }
-        public virtual ICollection<Answer> Answers { get; set; }
+        public virtual ICollection<Answer> Answers { get; set; } = new List<Answer>();
     }
 }

@@ -5,7 +5,7 @@
 namespace IqTest_server.Migrations
 {
     /// <inheritdoc />
-    public partial class AddAgeAndGenderToUser : Migration
+    public partial class AddAgeAndCountryToUser : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -14,16 +14,16 @@ namespace IqTest_server.Migrations
                 name: "Age",
                 table: "Users",
                 type: "int",
-                nullable: false,
-                defaultValue: 0);
+                nullable: true,
+                defaultValue: null);
 
             migrationBuilder.AddColumn<string>(
-                name: "Gender",
+                name: "Country",
                 table: "Users",
-                type: "nvarchar(10)",
-                maxLength: 10,
+                type: "nvarchar(100)",
+                maxLength: 100,
                 nullable: false,
-                defaultValue: "");
+                defaultValue: "United States");
         }
 
         /// <inheritdoc />
@@ -34,7 +34,7 @@ namespace IqTest_server.Migrations
                 table: "Users");
 
             migrationBuilder.DropColumn(
-                name: "Gender",
+                name: "Country",
                 table: "Users");
         }
     }

@@ -13,5 +13,6 @@ namespace IqTest_server.DTOs.Test
         public List<List<string>> Pairs { get; set; }
         public List<List<int>> MissingIndices { get; set; }
         public string CorrectAnswer {  get; set; }
+        public int Weight { get; set; } = 3; // Difficulty weight from 2-8, default 3
     }
 }

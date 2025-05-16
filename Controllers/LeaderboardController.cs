@@ -19,20 +19,21 @@ namespace IqTest_server.Controllers
             _leaderboardService = leaderboardService;
         }
 
-        [HttpGet("global")]
-        public async Task<IActionResult> GetGlobalLeaderboard([FromQuery] int limit = 10)
-        {
-            var authHeader = Request.Headers["Authorization"].FirstOrDefault();
-
-            var leaderboard = await _leaderboardService.GetGlobalLeaderboardAsync(limit);
-            return Ok(leaderboard);
-        }
-
         [HttpGet("test-type/{testTypeId}")]
-        public async Task<IActionResult> GetTestTypeLeaderboard(string testTypeId, [FromQuery] int limit = 10)
+        public async Task<IActionResult> GetTestTypeLeaderboard(string testTypeId, [FromQuery] int page = 1, [FromQuery] int pageSize = 10)
         {
-            var leaderboard = await _leaderboardService.GetTestTypeLeaderboardAsync(testTypeId, limit);
-            return Ok(leaderboard);
+            var leaderboard = await _leaderboardService.GetTestTypeLeaderboardAsync(testTypeId, page, pageSize);
+            var testCompletedCount = await _leaderboardService.GetTestTypeCompletedCountAsync(testTypeId);
+            var totalUsers = await _leaderboardService.GetTotalUsersCountAsync();
+            
+            return Ok(new
+            {
+                entries = leaderboard,
+                testCompletedCount,
+                totalUsers,
+                currentPage = page,
+                pageSize
+            });
         }
 
         [HttpGet("user-ranking")]
