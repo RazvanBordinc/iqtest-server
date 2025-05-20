@@ -46,34 +46,59 @@ namespace IqTest_server.Services
         private async Task RefreshAllQuestions()
         {
             using var scope = _serviceProvider.CreateScope();
-            var githubService = scope.ServiceProvider.GetRequiredService<GithubService>();
-            var redisService = scope.ServiceProvider.GetRequiredService<RedisService>();
-
-            // Refresh all test types
-            string[] testTypes = { "number-logic", "word-logic", "memory", "mixed" };
-
-            foreach (var testType in testTypes)
+            
+            try
             {
-                try
+                var githubService = scope.ServiceProvider.GetRequiredService<GithubService>();
+                var redisService = scope.ServiceProvider.GetRequiredService<RedisService>();
+
+                // Refresh all test types
+                string[] testTypes = { "number-logic", "word-logic", "memory", "mixed" };
+
+                foreach (var testType in testTypes)
                 {
-                    _logger.LogInformation("Refreshing questions for test type: {TestType}", testType);
-                    
-                    // Get question count based on test type
-                    int count = GetQuestionCount(testType);
-                    
-                    // Fetch questions from GitHub
-                    var questions = await githubService.GetQuestionsAsync(testType, count);
-                    
-                    // Store in Redis with 24-hour expiration
-                    string key = $"questions:{testType}";
-                    await redisService.SetAsync(key, questions, TimeSpan.FromHours(24));
-                    
-                    _logger.LogInformation("Successfully refreshed {Count} questions for {TestType}", questions.Count, testType);
+                    try
+                    {
+                        _logger.LogInformation("Refreshing questions for test type: {TestType}", testType);
+                        
+                        // Get question count based on test type
+                        int count = GetQuestionCount(testType);
+                        
+                        // Fetch questions from GitHub
+                        var questions = await githubService.GetQuestionsAsync(testType, count);
+                        
+                        if (questions == null || questions.Count == 0)
+                        {
+                            _logger.LogWarning("Received empty question set for test type: {TestType}", testType);
+                            continue;
+                        }
+                        
+                        // Try to store in Redis with 48-hour expiration (longer to handle potential Redis outages)
+                        string key = $"questions:{testType}";
+                        bool redisSuccess = await redisService.SetAsync(key, questions, TimeSpan.FromHours(48));
+                        
+                        if (redisSuccess)
+                        {
+                            _logger.LogInformation("Successfully refreshed and cached {Count} questions for {TestType}", 
+                                questions.Count, testType);
+                        }
+                        else
+                        {
+                            _logger.LogWarning("Questions were refreshed but Redis caching failed for test type: {TestType}. " +
+                                "The application will use fallback questions if needed.", testType);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error refreshing questions for test type: {TestType}", testType);
+                        // Continue with other test types even if one fails
+                    }
                 }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error refreshing questions for test type: {TestType}", testType);
-                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error setting up services in RefreshAllQuestions");
+                // Log the error but don't rethrow, as we want the background service to continue running
             }
         }
 

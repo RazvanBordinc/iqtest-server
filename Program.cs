@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.DataProtection.Repositories;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using StackExchange.Redis;
 using Microsoft.IdentityModel.Tokens;
  
@@ -82,10 +83,28 @@ builder.Services.AddStackExchangeRedisCache(options =>
     options.InstanceName = "IqTest";
 });
 
-// Add Redis connection multiplexer
+// Add Redis connection multiplexer with resilient configuration
 var redisConnectionString = builder.Configuration["Redis:ConnectionString"] ?? "localhost:6379";
+var redisOptions = ConfigurationOptions.Parse(redisConnectionString);
+redisOptions.AbortOnConnectFail = false; // Don't fail if Redis is temporarily unavailable
+redisOptions.ConnectRetry = 5; // Number of times to retry connecting
+redisOptions.ConnectTimeout = 10000; // Connection timeout in milliseconds
+
 builder.Services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(sp =>
-    StackExchange.Redis.ConnectionMultiplexer.Connect(redisConnectionString));
+{
+    try
+    {
+        return ConnectionMultiplexer.Connect(redisOptions);
+    }
+    catch (Exception ex)
+    {
+        var logger = sp.GetRequiredService<ILogger<Program>>();
+        logger.LogError(ex, "Failed to connect to Redis. The application will continue without Redis functionality.");
+        
+        // Create a dummy multiplexer for services that depend on it
+        return ConnectionMultiplexer.Connect("127.0.0.1:6379,abortConnect=false");
+    }
+});
 
 // Services
 builder.Services.AddSingleton<PasswordHasher>();

@@ -16,17 +16,45 @@ namespace IqTest_server.Services
         private readonly IDatabase _database;
         private readonly TimeSpan _defaultExpiry = TimeSpan.FromDays(7); // Cache for a week by default
 
+        private bool _isRedisAvailable = true;
+
         public RedisService(
             IConnectionMultiplexer redis,
             ILogger<RedisService> logger)
         {
             _redis = redis;
             _logger = logger;
-            _database = redis.GetDatabase();
+            
+            try
+            {
+                _database = redis.GetDatabase();
+                // Test connection
+                var ping = _database.Ping();
+                _logger.LogInformation("Redis connection established successfully. Ping: {Ping}ms", ping.TotalMilliseconds);
+            }
+            catch (Exception ex)
+            {
+                _isRedisAvailable = false;
+                _logger.LogWarning(ex, "Failed to connect to Redis. The system will operate with reduced functionality.");
+                // Create a dummy database to avoid null reference exceptions
+                _database = redis.GetDatabase(-1);
+            }
         }
 
         public async Task<bool> SetAsync<T>(string key, T value, TimeSpan? expiry = null)
         {
+            // Try to reconnect if Redis was previously unavailable
+            if (!_isRedisAvailable)
+            {
+                await TryReconnectIfNeededAsync();
+                
+                if (!_isRedisAvailable)
+                {
+                    _logger.LogDebug("Skipping Redis SetAsync because Redis is not available for key: {Key}", key);
+                    return false;
+                }
+            }
+            
             try
             {
                 var jsonData = JsonSerializer.Serialize(value);
@@ -35,12 +63,25 @@ namespace IqTest_server.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error setting value in Redis for key: {Key}", key);
+                _isRedisAvailable = false; // Mark Redis as unavailable after error
                 return false;
             }
         }
 
         public async Task<T> GetAsync<T>(string key)
         {
+            // Try to reconnect if Redis was previously unavailable
+            if (!_isRedisAvailable)
+            {
+                await TryReconnectIfNeededAsync();
+                
+                if (!_isRedisAvailable)
+                {
+                    _logger.LogDebug("Skipping Redis GetAsync because Redis is not available for key: {Key}", key);
+                    return default;
+                }
+            }
+            
             try
             {
                 var value = await _database.StringGetAsync(key);
@@ -54,12 +95,25 @@ namespace IqTest_server.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting value from Redis for key: {Key}", key);
+                _isRedisAvailable = false; // Mark Redis as unavailable after error
                 return default;
             }
         }
 
         public async Task<bool> RemoveAsync(string key)
         {
+            // Try to reconnect if Redis was previously unavailable
+            if (!_isRedisAvailable)
+            {
+                await TryReconnectIfNeededAsync();
+                
+                if (!_isRedisAvailable)
+                {
+                    _logger.LogDebug("Skipping Redis RemoveAsync because Redis is not available for key: {Key}", key);
+                    return false;
+                }
+            }
+            
             try
             {
                 return await _database.KeyDeleteAsync(key);
@@ -67,12 +121,25 @@ namespace IqTest_server.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error removing key from Redis: {Key}", key);
+                _isRedisAvailable = false; // Mark Redis as unavailable after error
                 return false;
             }
         }
 
         public async Task<bool> KeyExistsAsync(string key)
         {
+            // Try to reconnect if Redis was previously unavailable
+            if (!_isRedisAvailable)
+            {
+                await TryReconnectIfNeededAsync();
+                
+                if (!_isRedisAvailable)
+                {
+                    _logger.LogDebug("Skipping Redis KeyExistsAsync because Redis is not available for key: {Key}", key);
+                    return false;
+                }
+            }
+            
             try
             {
                 return await _database.KeyExistsAsync(key);
@@ -80,6 +147,7 @@ namespace IqTest_server.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error checking if key exists in Redis: {Key}", key);
+                _isRedisAvailable = false; // Mark Redis as unavailable after error
                 return false;
             }
         }
@@ -140,6 +208,28 @@ namespace IqTest_server.Services
         {
             return $"questions:{testTypeId}:{date.ToString("yyyyMMdd")}";
         }
+        
+        /// <summary>
+        /// Attempts to check if Redis is available and reconnect if it was previously unavailable
+        /// </summary>
+        private async Task TryReconnectIfNeededAsync()
+        {
+            // If Redis is already available, do nothing
+            if (_isRedisAvailable) return;
+            
+            try
+            {
+                // Try to ping Redis
+                var ping = await _database.PingAsync();
+                _logger.LogInformation("Redis connection reestablished. Ping: {Ping}ms", ping.TotalMilliseconds);
+                _isRedisAvailable = true;
+            }
+            catch (Exception ex)
+            {
+                // Redis is still unavailable, log at debug level to avoid spamming logs
+                _logger.LogDebug(ex, "Attempted to reconnect to Redis but it is still unavailable");
+            }
+        }
 
         /// <summary>
         /// Delete all keys matching a pattern
@@ -148,6 +238,18 @@ namespace IqTest_server.Services
         /// <returns>Task</returns>
         public async Task DeleteKeysByPatternAsync(string pattern)
         {
+            // Try to reconnect if Redis was previously unavailable
+            if (!_isRedisAvailable)
+            {
+                await TryReconnectIfNeededAsync();
+                
+                if (!_isRedisAvailable)
+                {
+                    _logger.LogDebug("Skipping Redis DeleteKeysByPatternAsync because Redis is not available for pattern: {Pattern}", pattern);
+                    return;
+                }
+            }
+            
             try
             {
                 var endpoints = _redis.GetEndPoints();
@@ -172,7 +274,8 @@ namespace IqTest_server.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error deleting keys by pattern: {Pattern}", pattern);
-                throw;
+                _isRedisAvailable = false; // Mark Redis as unavailable after error
+                // Don't throw the exception, just log it
             }
         }
 
@@ -182,6 +285,18 @@ namespace IqTest_server.Services
         /// <returns>Task</returns>
         public async Task DeleteAllKeysAsync()
         {
+            // Try to reconnect if Redis was previously unavailable
+            if (!_isRedisAvailable)
+            {
+                await TryReconnectIfNeededAsync();
+                
+                if (!_isRedisAvailable)
+                {
+                    _logger.LogDebug("Skipping Redis DeleteAllKeysAsync because Redis is not available");
+                    return;
+                }
+            }
+            
             try
             {
                 var endpoints = _redis.GetEndPoints();
@@ -210,7 +325,8 @@ namespace IqTest_server.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error deleting all keys from Redis");
-                throw;
+                _isRedisAvailable = false; // Mark Redis as unavailable after error
+                // Don't throw the exception, just log it
             }
         }
     }
