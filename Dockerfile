@@ -16,6 +16,4 @@ RUN dotnet publish "IqTest-server.csproj" -c Release -o /app/publish
 FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
-# Create directory for data protection keys
-RUN mkdir -p /app/data-protection-keys && chmod 777 /app/data-protection-keys
 ENTRYPOINT ["dotnet", "IqTest-server.dll"]

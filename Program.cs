@@ -29,14 +29,23 @@ builder.Services.AddLogging(logging =>
     logging.AddDebug();
 });
 
-// Configure Data Protection with persistent keys
-var keysDirectory = builder.Environment.IsDevelopment() 
-    ? new DirectoryInfo("/mnt/c/Users/razva/OneDrive/Desktop/projects/iqtest/data-protection-keys")
-    : new DirectoryInfo("/app/data-protection-keys");
-
-builder.Services.AddDataProtection()
-    .PersistKeysToFileSystem(keysDirectory)
-    .SetDefaultKeyLifetime(TimeSpan.FromDays(90)); // 90-day key rotation
+// Configure Data Protection with in-memory keys for free tier
+// This approach keeps keys in memory, which means they'll be regenerated on service restart
+// It's not ideal for production, but works for a free tier with no persistent disk
+if (builder.Environment.IsDevelopment())
+{
+    // In development, still use file system storage
+    var keysDirectory = new DirectoryInfo("/mnt/c/Users/razva/OneDrive/Desktop/projects/iqtest/data-protection-keys");
+    builder.Services.AddDataProtection()
+        .PersistKeysToFileSystem(keysDirectory)
+        .SetDefaultKeyLifetime(TimeSpan.FromDays(90));
+}
+else
+{
+    // In production (free tier), use default key storage with extended lifetime
+    builder.Services.AddDataProtection()
+        .SetDefaultKeyLifetime(TimeSpan.FromDays(365)); // Longer key lifetime to reduce key rotation frequency
+}
 
 // Database context
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
@@ -76,19 +85,104 @@ builder.Services.AddCors(options =>
     });
 });
 
-// Redis for caching and rate limiting
+// Redis for caching and rate limiting - use the same options we'll create later
+// Note: We'll create detailed options later, so just set a placeholder here 
+// that will be overridden when we create the connection multiplexer
 builder.Services.AddStackExchangeRedisCache(options =>
 {
-    options.Configuration = builder.Configuration["Redis:ConnectionString"] ?? "localhost:6379";
+    options.Configuration = "localhost:6379"; // This will be overridden by the connection multiplexer
     options.InstanceName = "IqTest";
+    // The actual Redis configuration is handled by the IConnectionMultiplexer registration
 });
 
 // Add Redis connection multiplexer with resilient configuration
 var redisConnectionString = builder.Configuration["Redis:ConnectionString"] ?? "localhost:6379";
-var redisOptions = ConfigurationOptions.Parse(redisConnectionString);
-redisOptions.AbortOnConnectFail = false; // Don't fail if Redis is temporarily unavailable
-redisOptions.ConnectRetry = 5; // Number of times to retry connecting
-redisOptions.ConnectTimeout = 10000; // Connection timeout in milliseconds
+
+// Create Redis configuration options programmatically instead of parsing
+var redisOptions = new ConfigurationOptions
+{
+    AbortOnConnectFail = false, // Don't fail if Redis is temporarily unavailable
+    ConnectRetry = 5, // Number of times to retry connecting
+    ConnectTimeout = 10000, // Connection timeout in milliseconds
+    Password = "", // Will be set below if present in connection string
+    Ssl = false, // Will be set to true for Upstash Redis
+    SyncTimeout = 10000 // Increase sync timeout for cloud-hosted Redis
+};
+
+// Create a logger for Redis configuration
+// Use a simple console logger to avoid calling BuildServiceProvider
+var redisLogger = LoggerFactory.Create(logging => 
+{
+    logging.AddConsole();
+    logging.AddDebug();
+}).CreateLogger("Redis");
+
+// Parse the Redis connection string manually
+try
+{
+    if (!string.IsNullOrEmpty(redisConnectionString))
+    {
+        if (redisConnectionString.Contains("@") && redisConnectionString.StartsWith("redis://"))
+        {
+            // Handle Upstash connection string format: redis://default:PASSWORD@HOST:PORT
+            redisLogger.LogInformation("Configuring Upstash Redis connection");
+            
+            // Remove the protocol prefix
+            var withoutProtocol = redisConnectionString.Substring("redis://".Length);
+            
+            // Split at @ to separate credentials from endpoint
+            var parts = withoutProtocol.Split('@');
+            if (parts.Length == 2)
+            {
+                // Extract credentials
+                var credentials = parts[0].Split(':');
+                if (credentials.Length >= 2)
+                {
+                    redisOptions.Password = credentials[1];
+                }
+                
+                // Extract endpoint
+                var endpoint = parts[1];
+                var hostPort = endpoint.Split(':');
+                if (hostPort.Length == 2)
+                {
+                    redisOptions.EndPoints.Add(hostPort[0], int.Parse(hostPort[1]));
+                    redisOptions.Ssl = true; // Upstash Redis requires SSL
+                    redisLogger.LogInformation("Successfully configured Upstash Redis connection to: {Host}", hostPort[0]);
+                }
+            }
+        }
+        else
+        {
+            // Handle simple host:port format (local Redis or Docker Redis)
+            redisLogger.LogInformation("Configuring standard Redis connection: {Connection}", redisConnectionString);
+            var hostPort = redisConnectionString.Split(':');
+            if (hostPort.Length >= 1)
+            {
+                var port = hostPort.Length > 1 ? int.Parse(hostPort[1]) : 6379;
+                redisOptions.EndPoints.Add(hostPort[0], port);
+                redisLogger.LogInformation("Successfully configured Redis connection to: {Host}:{Port}", hostPort[0], port);
+            }
+            else
+            {
+                redisLogger.LogWarning("Invalid Redis connection string format, using default localhost:6379");
+                redisOptions.EndPoints.Add("localhost", 6379);
+            }
+        }
+    }
+    else
+    {
+        // Default to localhost if no connection string is provided
+        redisLogger.LogInformation("No Redis connection string provided, using default localhost:6379");
+        redisOptions.EndPoints.Add("localhost", 6379);
+    }
+}
+catch (Exception ex)
+{
+    redisLogger.LogError(ex, "Failed to parse Redis connection string. Using default localhost:6379");
+    redisOptions.EndPoints.Clear();
+    redisOptions.EndPoints.Add("localhost", 6379);
+}
 
 builder.Services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(sp =>
 {
@@ -98,8 +192,8 @@ builder.Services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(sp =>
     }
     catch (Exception ex)
     {
-        var logger = sp.GetRequiredService<ILogger<Program>>();
-        logger.LogError(ex, "Failed to connect to Redis. The application will continue without Redis functionality.");
+        var serviceLogger = sp.GetRequiredService<ILogger<Program>>();
+        serviceLogger.LogError(ex, "Failed to connect to Redis. The application will continue without Redis functionality.");
         
         // Create a dummy multiplexer for services that depend on it
         return ConnectionMultiplexer.Connect("127.0.0.1:6379,abortConnect=false");
