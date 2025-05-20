@@ -1,5 +1,6 @@
 using System;
 using System.IdentityModel.Tokens.Jwt;
+using System.IO;
 using System.Text;
 using System.Threading.Tasks;
 using IqTest_server.Data;
@@ -7,6 +8,8 @@ using IqTest_server.Middleware;
 using IqTest_server.Services;
 using IqTest_server.Utilities;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.DataProtection.Repositories;
 using Microsoft.EntityFrameworkCore;
 using StackExchange.Redis;
 using Microsoft.IdentityModel.Tokens;
@@ -25,29 +28,13 @@ builder.Services.AddLogging(logging =>
     logging.AddDebug();
 });
 
-// Configure Data Protection to use persistent keys when possible or gracefully fall back to ephemeral keys
-var keysDirectory = new System.IO.DirectoryInfo(
-    builder.Configuration["DataProtection:KeysDirectory"] ?? 
-    System.IO.Path.Combine(System.IO.Path.GetTempPath(), "IqTestKeys"));
-
-if (!keysDirectory.Exists)
-{
-    try
-    {
-        keysDirectory.Create();
-    }
-    catch (Exception ex)
-    {
-        var logger = builder.Services.BuildServiceProvider().GetRequiredService<ILogger<Program>>();
-        logger.LogWarning(ex, "Unable to create data protection keys directory. Using default directory.");
-        keysDirectory = new System.IO.DirectoryInfo(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "IqTestKeys"));
-        keysDirectory.Create();
-    }
-}
+// Configure Data Protection with persistent keys
+var keysDirectory = builder.Environment.IsDevelopment() 
+    ? new DirectoryInfo("/mnt/c/Users/razva/OneDrive/Desktop/projects/iqtest/data-protection-keys")
+    : new DirectoryInfo("/app/data-protection-keys");
 
 builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(keysDirectory)
-    .SetApplicationName("IqTest")
     .SetDefaultKeyLifetime(TimeSpan.FromDays(90)); // 90-day key rotation
 
 // Database context
