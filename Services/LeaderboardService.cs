@@ -89,7 +89,7 @@ namespace IqTest_server.Services
                             Score = l.Score,
                             TestsCompleted = l.TestsCompleted,
                             Percentile = l.Percentile,
-                            Country = l.User.Country ?? "Not specified",
+                            Country = l.Country ?? l.User.Country ?? "Not specified",
                             AverageTime = l.AverageTime ?? "N/A",
                             BestTime = l.BestTime ?? "N/A",
                             IQScore = l.IQScore

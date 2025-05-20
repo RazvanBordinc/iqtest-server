@@ -90,5 +90,29 @@ namespace IqTest_server.Controllers
                 return StatusCode(500, "An error occurred while updating your age");
             }
         }
+
+        [HttpGet("test-history")]
+        public async Task<IActionResult> GetTestHistory([FromQuery] int page = 1, [FromQuery] int limit = 5, [FromQuery] string testType = null)
+        {
+            try
+            {
+                if (page < 1) page = 1;
+                if (limit < 1) limit = 5;
+                
+                var userId = GetUserId();
+                _logger.LogInformation("Getting test history for user: {UserId}, page: {Page}, limit: {Limit}, testType: {TestType}", 
+                    userId, page, limit, testType);
+                
+                var testHistory = await _profileService.GetUserTestHistoryAsync(userId, page, limit, testType);
+                
+                _logger.LogInformation("Retrieved test history successfully");
+                return Ok(testHistory);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving test history for user: {UserId}", GetUserId());
+                return StatusCode(500, "An error occurred while retrieving your test history");
+            }
+        }
     }
 }

@@ -28,7 +28,7 @@ namespace IqTest_server.Models
         public int? IQScore { get; set; } // Only for comprehensive test
         
         [MaxLength(100)]
-        public string? Country { get; set; }
+        public string Country { get; set; } = "United States"; // Default value
 
         public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
 

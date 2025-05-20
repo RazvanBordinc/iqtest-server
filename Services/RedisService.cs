@@ -140,6 +140,78 @@ namespace IqTest_server.Services
         {
             return $"questions:{testTypeId}:{date.ToString("yyyyMMdd")}";
         }
-    }
 
+        /// <summary>
+        /// Delete all keys matching a pattern
+        /// </summary>
+        /// <param name="pattern">The pattern to match (e.g., "questions:*")</param>
+        /// <returns>Task</returns>
+        public async Task DeleteKeysByPatternAsync(string pattern)
+        {
+            try
+            {
+                var endpoints = _redis.GetEndPoints();
+                foreach (var endpoint in endpoints)
+                {
+                    var server = _redis.GetServer(endpoint);
+                    if (!server.IsConnected || server.IsReplica) continue;
+
+                    var keys = new List<RedisKey>();
+                    await foreach (var key in server.KeysAsync(pattern: pattern))
+                    {
+                        keys.Add(key);
+                    }
+
+                    if (keys.Count > 0)
+                    {
+                        await _database.KeyDeleteAsync(keys.ToArray());
+                        _logger.LogInformation($"Deleted {keys.Count} keys matching pattern: {pattern}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error deleting keys by pattern: {Pattern}", pattern);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Delete all keys in the Redis database
+        /// </summary>
+        /// <returns>Task</returns>
+        public async Task DeleteAllKeysAsync()
+        {
+            try
+            {
+                var endpoints = _redis.GetEndPoints();
+                int totalKeysDeleted = 0;
+
+                foreach (var endpoint in endpoints)
+                {
+                    var server = _redis.GetServer(endpoint);
+                    if (!server.IsConnected || server.IsReplica) continue;
+
+                    var keys = new List<RedisKey>();
+                    await foreach (var key in server.KeysAsync(pattern: "*"))
+                    {
+                        keys.Add(key);
+                    }
+
+                    if (keys.Count > 0)
+                    {
+                        await _database.KeyDeleteAsync(keys.ToArray());
+                        totalKeysDeleted += keys.Count;
+                    }
+                }
+
+                _logger.LogInformation($"Successfully deleted all {totalKeysDeleted} keys from Redis");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error deleting all keys from Redis");
+                throw;
+            }
+        }
+    }
 }

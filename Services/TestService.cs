@@ -259,7 +259,9 @@ namespace IqTest_server.Services
                         TestsCompleted = 1,
                         BestTime = testResult.Duration,
                         AverageTime = testResult.Duration,
-                        IQScore = null, // Will be calculated later for comprehensive tests
+                        IQScore = testResult.TestTypeId == 4 ? 
+                            CalculateEnhancedIQScore(testResult.Score, 0, testResult.Duration, testResult.Accuracy) : 
+                            null,
                         Country = user?.Country ?? "United States",
                         LastUpdated = DateTime.UtcNow
                     };
@@ -300,15 +302,38 @@ namespace IqTest_server.Services
                     // Calculate IQ score only for comprehensive test (testTypeId = 4)
                     if (allEntries[i].TestTypeId == 4)
                     {
-                        allEntries[i].IQScore = CalculateIQScore(allEntries[i].Percentile);
+                        // Get the test result to get time information
+                        var currentResult = await _context.TestResults
+                            .Where(tr => tr.UserId == allEntries[i].UserId && tr.TestTypeId == 4)
+                            .OrderByDescending(tr => tr.Score)
+                            .FirstOrDefaultAsync();
+                            
+                        if (currentResult != null)
+                        {
+                            allEntries[i].IQScore = CalculateEnhancedIQScore(
+                                allEntries[i].Score, 
+                                allEntries[i].Percentile,
+                                currentResult.Duration,
+                                currentResult.Accuracy);
+                        }
+                        else
+                        {
+                            allEntries[i].IQScore = CalculateIQScore(allEntries[i].Percentile);
+                        }
                     }
                 }
 
                 // Update test result percentile and IQ
                 testResult.Percentile = entry.Percentile;
-                if (testResult.TestTypeId == 4)
+                if (testResult.TestTypeId == 4 && entry != null)
                 {
-                    testResult.IQScore = entry.IQScore;
+                    // Calculate IQ score for the current test result
+                    testResult.IQScore = CalculateEnhancedIQScore(
+                        testResult.Score,
+                        entry.Percentile,
+                        testResult.Duration,
+                        testResult.Accuracy);
+                    entry.IQScore = testResult.IQScore;
                 }
 
                 await _context.SaveChangesAsync();
@@ -391,6 +416,97 @@ namespace IqTest_server.Services
             return (int)Math.Round(100 + z * 15);
         }
         
+        private int CalculateEnhancedIQScore(int score, float percentile, string duration, float accuracy)
+        {
+            // Enhanced IQ calculation that considers multiple factors
+            
+            // 1. Base IQ from percentile (40% weight)
+            int baseIQ = CalculateIQScore(percentile);
+            
+            // 2. Score component (30% weight)
+            // Higher scores indicate better performance
+            double scoreComponent = (score / 100.0) * 30; // Normalize to 0-30
+            
+            // 3. Accuracy component (20% weight)
+            // Reward high accuracy
+            double accuracyComponent = (accuracy / 100.0) * 20; // Normalize to 0-20
+            
+            // 4. Time efficiency component (10% weight)
+            // Parse duration and calculate efficiency
+            double timeComponent = 10; // Default full points
+            if (TryParseDuration(duration, out TimeSpan timeTaken))
+            {
+                // Mixed test has 35 minutes time limit
+                TimeSpan timeLimit = TimeSpan.FromMinutes(35);
+                double timeRatio = timeTaken.TotalSeconds / timeLimit.TotalSeconds;
+                
+                if (timeRatio < 0.5)
+                {
+                    // Bonus for finishing in less than half the time
+                    timeComponent = 15;
+                }
+                else if (timeRatio > 0.9)
+                {
+                    // Penalty for using almost all the time
+                    timeComponent = 5;
+                }
+                else
+                {
+                    // Linear scale between 0.5 and 0.9
+                    timeComponent = 15 - ((timeRatio - 0.5) / 0.4) * 10;
+                }
+            }
+            
+            // Calculate weighted IQ score
+            double weightedIQ = (baseIQ * 0.4) + scoreComponent + accuracyComponent + timeComponent;
+            
+            // Apply adjustment factor to maintain normal distribution
+            // Mean should be around 100, so we scale accordingly
+            double adjustedIQ = 70 + (weightedIQ / 100) * 60; // Maps 0-100 weighted score to 70-130 IQ range
+            
+            // Ensure IQ is within reasonable bounds (70-160)
+            return Math.Max(70, Math.Min(160, (int)Math.Round(adjustedIQ)));
+        }
+        
+        private bool TryParseDuration(string duration, out TimeSpan result)
+        {
+            result = TimeSpan.Zero;
+            if (string.IsNullOrEmpty(duration)) return false;
+            
+            // Parse format like "1m 35s" or "45m 10s"
+            try
+            {
+                int totalSeconds = 0;
+                var parts = duration.Split(' ');
+                
+                foreach (var part in parts)
+                {
+                    if (part.EndsWith("h"))
+                    {
+                        if (int.TryParse(part.TrimEnd('h'), out int hours))
+                            totalSeconds += hours * 3600;
+                    }
+                    else if (part.EndsWith("m"))
+                    {
+                        if (int.TryParse(part.TrimEnd('m'), out int minutes))
+                            totalSeconds += minutes * 60;
+                    }
+                    else if (part.EndsWith("s"))
+                    {
+                        if (int.TryParse(part.TrimEnd('s'), out int seconds))
+                            totalSeconds += seconds;
+                    }
+                }
+                
+                result = TimeSpan.FromSeconds(totalSeconds);
+                return totalSeconds > 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+        
         private double InvNorm(double p)
         {
             // Approximation of inverse normal distribution function
@@ -452,6 +568,43 @@ namespace IqTest_server.Services
             }
             
             return x;
+        }
+        // Clear all test cooldowns for a specific user
+        public async Task ClearUserTestCooldownsAsync(int userId)
+        {
+            try
+            {
+                var testTypes = await GetAllTestTypesAsync();
+                
+                foreach (var testType in testTypes)
+                {
+                    var cacheKey = $"test_attempt:{userId}:{testType.Id}";
+                    await _redisService.RemoveAsync(cacheKey);
+                }
+                
+                _logger.LogInformation($"Cleared all test cooldowns for user {userId}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error clearing test cooldowns for user {userId}");
+                throw;
+            }
+        }
+
+        // Clear all test cooldowns for all users (admin function)
+        public async Task ClearAllTestCooldownsAsync()
+        {
+            try
+            {
+                // This is a pattern-based deletion - requires SCAN command
+                await _redisService.DeleteKeysByPatternAsync("test_attempt:*");
+                _logger.LogInformation("Cleared all test cooldowns for all users");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error clearing all test cooldowns");
+                throw;
+            }
         }
     }
 }

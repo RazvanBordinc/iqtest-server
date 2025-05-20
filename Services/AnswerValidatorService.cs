@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
@@ -30,40 +30,122 @@ namespace IqTest_server.Services
             int correctCount = 0;
             int totalQuestions = userAnswers.Count;
 
-            // Calculate time factor (faster completion = higher score, up to 110% of normal score)
-            // If they take the full time, they get 100% of their score
-            // If they take half the time, they get 110% of their score
-            float timeFactor = Math.Min(1.1f, Math.Max(1.0f, 1.1f - 0.2f * (float)(timeTaken.TotalMinutes / timeLimit.TotalMinutes)));
+            // Calculate time factor - more strict scoring
+            // Quick completion gives up to 105% bonus
+            // Taking full time gives 90% penalty
+            // Taking over time limit gives severe penalty
+            float timeRatio = (float)(timeTaken.TotalMinutes / timeLimit.TotalMinutes);
+            float timeFactor;
+            
+            if (timeRatio > 1.0f)
+            {
+                // Over time limit - severe penalty
+                timeFactor = Math.Max(0.7f, 1.0f - (timeRatio - 1.0f) * 0.5f);
+            }
+            else if (timeRatio > 0.9f)
+            {
+                // 90-100% of time - penalty
+                timeFactor = 0.9f + (1.0f - timeRatio) * 1.5f;
+            }
+            else if (timeRatio < 0.3f)
+            {
+                // Too fast (possibly cheating) - slight penalty
+                timeFactor = 0.95f;
+            }
+            else if (timeRatio < 0.5f)
+            {
+                // Fast completion - bonus
+                timeFactor = 1.05f;
+            }
+            else
+            {
+                // Linear scale between 50% and 90%
+                timeFactor = 1.05f - 0.15f * ((timeRatio - 0.5f) / 0.4f);
+            }
 
             _logger.LogInformation("Time factor: {TimeFactor} (took {TimeTaken} out of {TimeLimit})",
                 timeFactor, timeTaken, timeLimit);
 
-            foreach (var answer in userAnswers)
+            // Use index-based matching since frontend sends sequential IDs
+            for (int i = 0; i < userAnswers.Count; i++)
             {
-                var question = questions.FirstOrDefault(q => q.Id == answer.QuestionId);
-                if (question == null) continue;
+                var answer = userAnswers[i];
+                
+                // Find the corresponding question by index (since frontend uses 1-based indexing)
+                var questionIndex = answer.QuestionId - 1;
+                if (questionIndex < 0 || questionIndex >= questions.Count)
+                {
+                    _logger.LogWarning("Invalid question index: {Index} for answer ID: {AnswerId}", questionIndex, answer.QuestionId);
+                    continue;
+                }
+                
+                var question = questions[questionIndex];
 
                 // Default weight is 3 if not specified (from 2-8 scale)
                 int weight = 3;
-                if (questionWeights.TryGetValue(question.Id, out int definedWeight))
+                // Use answer.QuestionId to get weight since it corresponds to the sequential ID
+                if (questionWeights.TryGetValue(answer.QuestionId, out int definedWeight))
                 {
                     weight = definedWeight;
                 }
 
                 totalWeightedPoints += weight;
 
-                if (CheckAnswer(answer, question, correctAnswers))
+                // Special handling for memory questions to allow partial credit
+                if (answer.Value != null)
                 {
-                    correctCount++;
-                    weightedCorrectPoints += weight;
+                    if (question.Type.ToLower() == "memory-pair" || question.Type.ToLower() == "memory")
+                    {
+                        // Get partial credit for memory questions
+                        float correctRatio = GetMemoryAnswerPartialCredit(answer, question, correctAnswers);
+                        
+                        // Log partial credit amount
+                        _logger.LogInformation("Memory question {QuestionId} partial credit: {CorrectRatio:P2}", 
+                            answer.QuestionId, correctRatio);
+                        
+                        // Add partial points based on correctness ratio
+                        weightedCorrectPoints += (int)(weight * correctRatio);
+                        
+                        // For the correct count, consider it correct if at least 75% correct
+                        if (correctRatio >= 0.75f)
+                        {
+                            correctCount++;
+                        }
+                    }
+                    // Standard checks for other question types
+                    else if (CheckAnswer(answer, question, correctAnswers))
+                    {
+                        correctCount++;
+                        weightedCorrectPoints += weight;
+                    }
                 }
+                // Null answers are implicitly incorrect and contribute 0 points
             }
 
             // Calculate weighted score with time factor
+            // Apply additional penalties for low performance
             int score = 0;
             if (totalWeightedPoints > 0)
             {
-                score = (int)Math.Round(100 * (double)weightedCorrectPoints / totalWeightedPoints * timeFactor);
+                double rawScore = 100 * (double)weightedCorrectPoints / totalWeightedPoints;
+                
+                // Apply exponential curve for lower scores to make it more difficult
+                if (rawScore < 50)
+                {
+                    // Below 50% gets exponentially harder (squared scaling)
+                    rawScore = Math.Pow(rawScore / 50, 2) * 50;
+                }
+                else if (rawScore < 70)
+                {
+                    // 50-70% gets moderately harder
+                    rawScore = 50 + (rawScore - 50) * 0.8;
+                }
+                
+                // Apply time factor
+                score = (int)Math.Round(rawScore * timeFactor);
+                
+                // Ensure minimum score isn't too high
+                score = Math.Max(0, Math.Min(100, score));
             }
 
             // Calculate accuracy (percentage of questions answered correctly)
@@ -74,10 +156,11 @@ namespace IqTest_server.Services
 
         private bool CheckAnswer(AnswerDto answer, QuestionDto question, Dictionary<int, string> correctAnswers)
         {
-            // Get correct answer for this question
-            if (!correctAnswers.TryGetValue(question.Id, out var correctAnswer))
+            // Since frontend sends sequential IDs (1, 2, 3...) that match the question.Id
+            // we can directly use answer.QuestionId to get the correct answer
+            if (!correctAnswers.TryGetValue(answer.QuestionId, out var correctAnswer))
             {
-                _logger.LogWarning("No correct answer found for question ID: {QuestionId}", question.Id);
+                _logger.LogWarning("No correct answer found for question ID: {QuestionId}", answer.QuestionId);
                 return false;
             }
 
@@ -100,10 +183,28 @@ namespace IqTest_server.Services
 
         private bool CheckMultipleChoiceAnswer(AnswerDto answer, QuestionDto question, string correctAnswer)
         {
-            if (answer.Value is long longValue && longValue >= 0 && longValue < question.Options.Count)
+            if (answer.Value == null)
             {
-                return question.Options[(int)longValue] == correctAnswer;
+                return false;
             }
+            
+            int index = -1;
+            
+            // Handle both int32 and int64 values
+            if (answer.Value is long longValue)
+            {
+                index = (int)longValue;
+            }
+            else if (answer.Value is int intValue)
+            {
+                index = intValue;
+            }
+            
+            if (index >= 0 && index < question.Options.Count)
+            {
+                return question.Options[index] == correctAnswer;
+            }
+            
             return false;
         }
 
@@ -117,6 +218,11 @@ namespace IqTest_server.Services
         {
             try
             {
+                if (answer.Value == null)
+                {
+                    return false;
+                }
+                
                 Dictionary<string, string> memoryAnswers;
 
                 if (answer.Value is JsonElement jsonElement)
@@ -141,6 +247,29 @@ namespace IqTest_server.Services
                         else
                         {
                             _logger.LogError("Invalid memory answer format: {Json}", jsonString);
+                            return false;
+                        }
+                    }
+                }
+                else if (answer.Value is string stringValue)
+                {
+                    // Handle case where value is already a string (from frontend)
+                    try
+                    {
+                        memoryAnswers = JsonSerializer.Deserialize<Dictionary<string, string>>(stringValue);
+                    }
+                    catch
+                    {
+                        // If that fails, try to parse as a nested object
+                        var nestedObj = JsonSerializer.Deserialize<MemoryAnswerWrapper>(stringValue);
+                        if (nestedObj?.value != null)
+                        {
+                            // Extract the inner dictionary
+                            memoryAnswers = nestedObj.value;
+                        }
+                        else
+                        {
+                            _logger.LogError("Invalid memory answer format (string): {Json}", stringValue);
                             return false;
                         }
                     }
@@ -185,8 +314,96 @@ namespace IqTest_server.Services
                 }
             }
 
-            // Consider memory question correct if at least 75% of pairs are recalled correctly
-            return correctCount >= (totalExpected * 0.75);
+            // Calculate a score based on the percentage of correct pairs
+            // This allows for partial credit instead of all-or-nothing
+            float correctPercentage = (float)correctCount / totalExpected;
+            
+            _logger.LogInformation("Memory answer check: {CorrectCount}/{TotalExpected} = {Percentage:P2}", 
+                correctCount, totalExpected, correctPercentage);
+                
+            // Consider fully correct if at least 75% of pairs are recalled correctly
+            // But give partial credit too - this affects the overall weighted score
+            return correctPercentage >= 0.75f;
+        }
+        
+        // Add a helper method to get partial credit for memory questions from the AnswerDto
+        private float GetMemoryAnswerPartialCredit(AnswerDto answer, QuestionDto question, Dictionary<int, string> correctAnswers)
+        {
+            try
+            {
+                // Get the correct answer string for this question
+                if (!correctAnswers.TryGetValue(answer.QuestionId, out var correctAnswer))
+                {
+                    _logger.LogWarning("No correct answer found for memory question ID: {QuestionId}", answer.QuestionId);
+                    return 0f;
+                }
+                
+                // Parse the user's answer into a dictionary
+                Dictionary<string, string> userAnswers = null;
+                
+                if (answer.Value is JsonElement jsonElement)
+                {
+                    // Get JSON as string
+                    string jsonString = jsonElement.GetRawText();
+                    try
+                    {
+                        userAnswers = JsonSerializer.Deserialize<Dictionary<string, string>>(jsonString);
+                    }
+                    catch
+                    {
+                        var nestedObj = JsonSerializer.Deserialize<MemoryAnswerWrapper>(jsonString);
+                        userAnswers = nestedObj?.value;
+                    }
+                }
+                else if (answer.Value is string stringValue)
+                {
+                    try
+                    {
+                        userAnswers = JsonSerializer.Deserialize<Dictionary<string, string>>(stringValue);
+                    }
+                    catch
+                    {
+                        var nestedObj = JsonSerializer.Deserialize<MemoryAnswerWrapper>(stringValue);
+                        userAnswers = nestedObj?.value;
+                    }
+                }
+                
+                if (userAnswers == null)
+                {
+                    _logger.LogError("Could not parse memory answer to dictionary: {Answer}", answer.Value);
+                    return 0f;
+                }
+                
+                // Now calculate the partial credit
+                var expectedAnswers = ParseMemoryExpectedAnswer(correctAnswer);
+                int correctCount = 0;
+                int totalExpected = expectedAnswers.Count;
+
+                if (totalExpected == 0)
+                    return 0f;
+
+                foreach (var expected in expectedAnswers)
+                {
+                    if (userAnswers.TryGetValue(expected.Key, out var userAnswer))
+                    {
+                        if (userAnswer.Trim().ToLower() == expected.Value.Trim().ToLower())
+                        {
+                            correctCount++;
+                        }
+                    }
+                }
+
+                float correctRatio = (float)correctCount / totalExpected;
+                _logger.LogInformation("Memory answer partial credit: {CorrectCount}/{TotalExpected} = {CorrectRatio:P2}",
+                    correctCount, totalExpected, correctRatio);
+                    
+                return correctRatio;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error calculating memory answer partial credit");
+                return 0f;
+            }
         }
 
         private Dictionary<string, string> ParseMemoryExpectedAnswer(string correctAnswer)

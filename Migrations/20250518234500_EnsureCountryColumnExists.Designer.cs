@@ -4,6 +4,7 @@ using IqTest_server.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace IqTest_server.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20250518234500_EnsureCountryColumnExists")]
+    partial class EnsureCountryColumnExists
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -48,16 +51,11 @@ namespace IqTest_server.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<int?>("UserId")
-                        .HasColumnType("int");
-
                     b.HasKey("Id");
 
                     b.HasIndex("QuestionId");
 
                     b.HasIndex("TestResultId");
-
-                    b.HasIndex("UserId");
 
                     b.ToTable("Answers");
                 });
@@ -202,6 +200,9 @@ namespace IqTest_server.Migrations
                     b.Property<int>("TestTypeId")
                         .HasColumnType("int");
 
+                    b.Property<string>("TimeRequired")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<int>("UserId")
                         .HasColumnType("int");
 
@@ -224,8 +225,8 @@ namespace IqTest_server.Migrations
 
                     b.Property<string>("Color")
                         .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("nvarchar(255)");
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
 
                     b.Property<string>("Description")
                         .IsRequired()
@@ -350,24 +351,14 @@ namespace IqTest_server.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("nvarchar(255)");
 
-                    b.Property<DateTime?>("LastLoginAt")
-                        .HasColumnType("datetime2");
-
                     b.Property<string>("PasswordHash")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<string>("RefreshToken")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<DateTime?>("RefreshTokenExpiryTime")
-                        .HasColumnType("datetime2");
-
                     b.Property<string>("Username")
                         .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
 
                     b.HasKey("Id");
 
@@ -385,7 +376,7 @@ namespace IqTest_server.Migrations
                     b.HasOne("IqTest_server.Models.Question", "Question")
                         .WithMany("Answers")
                         .HasForeignKey("QuestionId")
-                        .OnDelete(DeleteBehavior.Restrict)
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
                     b.HasOne("IqTest_server.Models.TestResult", "TestResult")
@@ -393,10 +384,6 @@ namespace IqTest_server.Migrations
                         .HasForeignKey("TestResultId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
-
-                    b.HasOne("IqTest_server.Models.User", null)
-                        .WithMany("Answers")
-                        .HasForeignKey("UserId");
 
                     b.Navigation("Question");
 
@@ -427,7 +414,7 @@ namespace IqTest_server.Migrations
                     b.HasOne("IqTest_server.Models.TestType", "TestType")
                         .WithMany("Questions")
                         .HasForeignKey("TestTypeId")
-                        .OnDelete(DeleteBehavior.Restrict)
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
                     b.Navigation("TestType");
@@ -438,7 +425,7 @@ namespace IqTest_server.Migrations
                     b.HasOne("IqTest_server.Models.TestType", "TestType")
                         .WithMany("TestResults")
                         .HasForeignKey("TestTypeId")
-                        .OnDelete(DeleteBehavior.Restrict)
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
                     b.HasOne("IqTest_server.Models.User", "User")
@@ -473,8 +460,6 @@ namespace IqTest_server.Migrations
 
             modelBuilder.Entity("IqTest_server.Models.User", b =>
                 {
-                    b.Navigation("Answers");
-
                     b.Navigation("LeaderboardEntries");
 
                     b.Navigation("TestResults");

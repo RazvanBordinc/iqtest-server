@@ -120,5 +120,142 @@ namespace IqTest_server.Services
                 return false;
             }
         }
+
+        public async Task<object> GetUserTestHistoryAsync(int userId, int page = 1, int limit = 5, string testType = null)
+        {
+            try
+            {
+                // Ensure valid pagination values
+                page = Math.Max(1, page);
+                limit = Math.Clamp(limit, 1, 20); // Set reasonable limits
+                
+                // Base query
+                var query = _context.TestResults
+                    .Where(tr => tr.UserId == userId);
+                
+                // Apply test type filter if specified
+                if (!string.IsNullOrEmpty(testType))
+                {
+                    int? dbTestTypeId = GetDbTestTypeId(testType);
+                    if (dbTestTypeId.HasValue)
+                    {
+                        query = query.Where(tr => tr.TestTypeId == dbTestTypeId.Value);
+                    }
+                }
+                
+                // Get total count for pagination metadata
+                var totalCount = await query.CountAsync();
+                
+                // If no results on current page but there are total results, reset to page 1
+                if (totalCount > 0 && page > 1 && (page - 1) * limit >= totalCount) {
+                    page = 1;
+                }
+                
+                // Get paginated results
+                var testResults = await query
+                    .Include(tr => tr.TestType)
+                    .OrderByDescending(tr => tr.CompletedAt)
+                    .Skip((page - 1) * limit)
+                    .Take(limit)
+                    .ToListAsync();
+
+                var testHistory = new List<TestHistoryDto>();
+
+                foreach (var result in testResults)
+                {
+                    // Calculate better than percentage based on the test
+                    var totalTestTakers = await _context.TestResults
+                        .Where(tr => tr.TestTypeId == result.TestTypeId)
+                        .CountAsync();
+                    
+                    var betterThanCount = await _context.TestResults
+                        .Where(tr => tr.TestTypeId == result.TestTypeId && tr.Score < result.Score)
+                        .CountAsync();
+                    
+                    var betterThanPercentage = totalTestTakers > 0 
+                        ? (float)betterThanCount / totalTestTakers * 100 
+                        : 0;
+
+                    // Calculate time ago
+                    var timeAgo = CalculateTimeAgo(result.CompletedAt);
+
+                    testHistory.Add(new TestHistoryDto
+                    {
+                        Id = result.Id,
+                        TestTypeId = GetFrontendTestTypeId(result.TestTypeId),
+                        TestTitle = result.TestType.Title,
+                        Score = result.Score,
+                        Percentile = result.Percentile,
+                        BetterThanPercentage = $"{betterThanPercentage:F1}%",
+                        IQScore = result.IQScore,
+                        Accuracy = result.Accuracy,
+                        Duration = result.Duration ?? "N/A",
+                        CompletedAt = result.CompletedAt,
+                        QuestionsCompleted = result.QuestionsCompleted,
+                        TimeAgo = timeAgo
+                    });
+                }
+
+                // Return pagination metadata along with the results
+                return new 
+                {
+                    Results = testHistory,
+                    Pagination = new 
+                    {
+                        TotalItems = totalCount,
+                        Page = page,
+                        TotalPages = (int)Math.Ceiling(totalCount / (double)limit),
+                        Limit = limit
+                    }
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving test history for user: {UserId}", userId);
+                throw;
+            }
+        }
+
+        private string GetFrontendTestTypeId(int dbTestTypeId)
+        {
+            return dbTestTypeId switch
+            {
+                1 => "number-logic",
+                2 => "word-logic",
+                3 => "memory",
+                4 => "mixed",
+                _ => "unknown"
+            };
+        }
+        
+        private int? GetDbTestTypeId(string frontendTestTypeId)
+        {
+            return frontendTestTypeId switch
+            {
+                "number-logic" => 1,
+                "word-logic" => 2,
+                "memory" => 3,
+                "mixed" => 4,
+                _ => null
+            };
+        }
+
+        private string CalculateTimeAgo(DateTime dateTime)
+        {
+            var timeSpan = DateTime.UtcNow - dateTime;
+
+            if (timeSpan.TotalMinutes < 1)
+                return "just now";
+            if (timeSpan.TotalMinutes < 60)
+                return $"{(int)timeSpan.TotalMinutes} minute{((int)timeSpan.TotalMinutes == 1 ? "" : "s")} ago";
+            if (timeSpan.TotalHours < 24)
+                return $"{(int)timeSpan.TotalHours} hour{((int)timeSpan.TotalHours == 1 ? "" : "s")} ago";
+            if (timeSpan.TotalDays < 30)
+                return $"{(int)timeSpan.TotalDays} day{((int)timeSpan.TotalDays == 1 ? "" : "s")} ago";
+            if (timeSpan.TotalDays < 365)
+                return $"{(int)(timeSpan.TotalDays / 30)} month{((int)(timeSpan.TotalDays / 30) == 1 ? "" : "s")} ago";
+            
+            return $"{(int)(timeSpan.TotalDays / 365)} year{((int)(timeSpan.TotalDays / 365) == 1 ? "" : "s")} ago";
+        }
     }
 }

@@ -125,54 +125,24 @@ builder.Services.AddAuthentication(options =>
                 ? authHeader.Substring("Bearer ".Length).Trim()
                 : null;
 
-            // Log what we found
-            Console.WriteLine($"OnMessageReceived - Cookie token: {(cookieToken != null ? "Found" : "Not found")}");
-            Console.WriteLine($"OnMessageReceived - Header token: {(headerToken != null ? "Found" : "Not found")}");
-            Console.WriteLine($"OnMessageReceived - Request Path: {context.Request.Path}");
-            Console.WriteLine($"OnMessageReceived - Request Method: {context.Request.Method}");
-
             // Use the token from cookie or header
             context.Token = cookieToken ?? headerToken;
-
-            if (!string.IsNullOrEmpty(context.Token))
-            {
-                Console.WriteLine("Token successfully extracted");
-            }
-            else
-            {
-                Console.WriteLine("No token found in cookies or headers");
-            }
 
             return Task.CompletedTask;
         },
         OnTokenValidated = context =>
         {
-            Console.WriteLine("Token validated successfully");
+            // Token is valid
             var userId = context.Principal?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-            Console.WriteLine($"User ID from token: {userId}");
-
-            // Log all claims for debugging
-            var claims = context.Principal?.Claims?.ToList();
-            if (claims != null)
-            {
-                Console.WriteLine("All claims:");
-                foreach (var claim in claims)
-                {
-                    Console.WriteLine($"  - {claim.Type}: {claim.Value}");
-                }
-            }
-
             return Task.CompletedTask;
         },
         OnAuthenticationFailed = context =>
         {
-            Console.WriteLine($"Authentication failed: {context.Exception.GetType().Name}: {context.Exception.Message}");
-            Console.WriteLine($"Failed token: {context.Request.Cookies["token"] ?? context.Request.Headers["Authorization"].FirstOrDefault()}");
+            // Authentication failed - will be handled by error middleware
             return Task.CompletedTask;
         },
         OnChallenge = context =>
         {
-            Console.WriteLine($"OnChallenge called for path: {context.Request.Path}");
             // Skip challenge for OPTIONS requests
             if (context.Request.Method == "OPTIONS")
             {
@@ -188,7 +158,18 @@ builder.Services.AddHttpClient("GitHub", client =>
     client.DefaultRequestHeaders.Add("Accept", "application/vnd.github.v3+json");
     client.DefaultRequestHeaders.Add("User-Agent", "IqTest-server");
 });
-builder.Services.AddControllers();
+builder.Services.AddControllers(options =>
+    {
+        options.SuppressAsyncSuffixInActionNames = false;
+    })
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.PropertyNamingPolicy = null;
+        options.JsonSerializerOptions.DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.Never;
+        options.JsonSerializerOptions.AllowTrailingCommas = true;
+        options.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
+        options.JsonSerializerOptions.WriteIndented = true;
+    });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
@@ -200,17 +181,77 @@ if (app.Environment.IsDevelopment())
     using (var scope = app.Services.CreateScope())
     {
         var services = scope.ServiceProvider;
+        var logger = services.GetRequiredService<ILogger<Program>>();
+        
         try
         {
             var context = services.GetRequiredService<ApplicationDbContext>();
-
-            // Apply migrations without trying to create the database explicitly
+            
+            // Apply migrations - this will create database if needed
+            logger.LogInformation("Applying database migrations...");
             context.Database.Migrate();
+            logger.LogInformation("Database migrations completed successfully");
+        }
+        catch (Microsoft.Data.SqlClient.SqlException sqlEx) 
+        {
+            logger.LogWarning($"SQL Exception during migration: {sqlEx.Message}");
+            
+            // Handle specific SQL exceptions
+            if (sqlEx.Message.Contains("Invalid column name 'Country'"))
+            {
+                logger.LogWarning("Country column issue detected, attempting to fix...");
+                
+                try
+                {
+                    var context = services.GetRequiredService<ApplicationDbContext>();
+                    // Execute raw SQL to add the column if it doesn't exist
+                    context.Database.ExecuteSqlRaw(@"
+                        IF NOT EXISTS (
+                            SELECT 1 
+                            FROM sys.columns 
+                            WHERE object_id = OBJECT_ID(N'[dbo].[LeaderboardEntries]') 
+                            AND name = 'Country'
+                        )
+                        BEGIN
+                            ALTER TABLE [dbo].[LeaderboardEntries] 
+                            ADD [Country] nvarchar(100) NOT NULL DEFAULT N'United States';
+                        END");
+                    
+                    // Try migrations again
+                    context.Database.Migrate();
+                    logger.LogInformation("Country column issue resolved");
+                }
+                catch (Exception columnEx)
+                {
+                    logger.LogError(columnEx, "Failed to fix Country column issue");
+                }
+            }
+            else if (sqlEx.Message.Contains("Database") && sqlEx.Message.Contains("already exists"))
+            {
+                logger.LogWarning("Database already exists, continuing with existing database");
+                
+                // Try to apply any pending migrations
+                try
+                {
+                    var context = services.GetRequiredService<ApplicationDbContext>();
+                    context.Database.Migrate();
+                    logger.LogInformation("Pending migrations applied successfully");
+                }
+                catch (Exception migrationEx)
+                {
+                    logger.LogError(migrationEx, "Failed to apply pending migrations");
+                }
+            }
+            else
+            {
+                logger.LogError(sqlEx, "SQL error during database setup");
+                throw;
+            }
         }
         catch (Exception ex)
         {
-            var logger = services.GetRequiredService<ILogger<Program>>();
-            logger.LogError(ex, "An error occurred during database migration.");
+            logger.LogError(ex, "An error occurred during database setup");
+            throw;
         }
     }
 
@@ -235,6 +276,7 @@ app.UseMiddleware<RateLimitingMiddleware>();
 app.UseAuthentication();
 app.UseAuthorization();
 
+app.UseMiddleware<JsonExceptionMiddleware>();
 app.UseMiddleware<ErrorHandlingMiddleware>();
 
 app.MapControllers();

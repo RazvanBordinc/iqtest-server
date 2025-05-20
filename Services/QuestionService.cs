@@ -95,7 +95,8 @@ namespace IqTest_server.Services
         {
             try
             {
-                var questionItems = await _githubService.GetQuestionsAsync(testTypeId);
+                int questionCount = GetQuestionCount(testTypeId);
+                var questionItems = await _githubService.GetQuestionsAsync(testTypeId, questionCount);
 
                 if (questionItems == null || questionItems.Count == 0)
                 {

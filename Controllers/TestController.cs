@@ -1,4 +1,5 @@
 ﻿// Controllers/TestController.cs
+using System.Linq;
 using System.Threading.Tasks;
 using IqTest_server.DTOs.Test;
 using IqTest_server.Services;
@@ -45,8 +46,6 @@ namespace IqTest_server.Controllers
         public async Task<IActionResult> GetTestQuestions(string testTypeId)
         {
             var userId = GetUserId();
-            _logger.LogInformation("GetTestQuestions called with testTypeId: {TestTypeId}, userId: {UserId}",
-                testTypeId, userId);
                 
             // Check if user can take this test
             var canTakeTest = await _testService.CanUserTakeTestAsync(userId, testTypeId);
@@ -57,7 +56,6 @@ namespace IqTest_server.Controllers
             }
 
             var result = await _testService.GenerateQuestionsForTestAsync(testTypeId);
-            _logger.LogInformation("Returning {Count} questions", result.Questions.Count);
             return Ok(result.Questions);
         }
         
@@ -79,9 +77,21 @@ namespace IqTest_server.Controllers
         [HttpPost("submit")]
         public async Task<IActionResult> SubmitTest([FromBody] SubmitAnswersDto submission)
         {
+            _logger.LogInformation("Received test submission for TestTypeId: {TestTypeId}", submission?.TestTypeId);
+            
             if (!ModelState.IsValid)
             {
-                return BadRequest(ModelState);
+                var errors = ModelState
+                    .Where(e => e.Value.Errors.Count > 0)
+                    .Select(e => new
+                    {
+                        Field = e.Key,
+                        Errors = e.Value.Errors.Select(error => error.ErrorMessage)
+                    })
+                    .ToList();
+                    
+                _logger.LogWarning("Invalid model state for test submission: {@Errors}", errors);
+                return BadRequest(new { message = "Invalid request data", errors });
             }
 
             var userId = GetUserId();
@@ -105,5 +115,6 @@ namespace IqTest_server.Controllers
                 return StatusCode(500, new { message = "An error occurred while submitting the test" });
             }
         }
+        // Method removed for production release
     }
 }

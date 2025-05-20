@@ -85,13 +85,16 @@ namespace IqTest_server.Services
                 }
             }
 
-            // Calculate weighted score (0-100)
-            int totalScore = totalPossibleWeight > 0
-                ? (int)Math.Round(100 * (double)totalWeightedScore / totalPossibleWeight)
+            // Calculate weighted score (0-100) based on all questions
+            int totalQuestionsWeight = questions.Sum(q => questionWeights.ContainsKey(q.Id) ? questionWeights[q.Id] : 3);
+            
+            // Use the total questions weight rather than just answered questions weight
+            int totalScore = totalQuestionsWeight > 0
+                ? (int)Math.Round(100 * (double)totalWeightedScore / totalQuestionsWeight)
                 : 0;
 
-            // Calculate accuracy (percentage of correct answers)
-            float accuracy = userAnswers.Count > 0 ? 100f * (float)correctCount / userAnswers.Count : 0;
+            // Calculate accuracy (percentage of correct answers out of all questions)
+            float accuracy = questions.Count > 0 ? 100f * (float)correctCount / questions.Count : 0;
 
             _logger.LogInformation("Score calculated: Weighted Score: {Score}, Accuracy: {Accuracy}%, Correct: {Correct}/{Total}",
                 totalScore, accuracy, correctCount, userAnswers.Count);
@@ -146,8 +149,9 @@ namespace IqTest_server.Services
                 if (isCorrect) correctCount++;
             }
 
-            int totalScore = (int)Math.Round(100 * (double)correctCount / Math.Max(1, userAnswers.Count));
-            float accuracy = userAnswers.Count > 0 ? 100f * (float)correctCount / userAnswers.Count : 0;
+            // Score based on all questions, not just answered ones
+            int totalScore = (int)Math.Round(100 * (double)correctCount / Math.Max(1, questions.Count));
+            float accuracy = questions.Count > 0 ? 100f * (float)correctCount / questions.Count : 0;
 
             return (totalScore, accuracy, correctAnswers);
         }

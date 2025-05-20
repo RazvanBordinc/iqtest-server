@@ -39,7 +39,7 @@ namespace IqTest_server.Data
                     Icon = "Calculator",
                     Color = "from-blue-500 to-cyan-500 dark:from-blue-600 dark:to-cyan-600",
                     QuestionsCount = 24,
-                    TimeLimit = "25 minutes",
+                    TimeLimit = "18 minutes",
                     Difficulty = "Adaptive"
                 },
                 new TestType
@@ -52,7 +52,7 @@ namespace IqTest_server.Data
                     Icon = "BookText",
                     Color = "from-emerald-500 to-green-500 dark:from-emerald-600 dark:to-green-600",
                     QuestionsCount = 28,
-                    TimeLimit = "30 minutes",
+                    TimeLimit = "20 minutes",
                     Difficulty = "Adaptive"
                 },
                 new TestType
@@ -65,7 +65,7 @@ namespace IqTest_server.Data
                     Icon = "Brain",
                     Color = "from-amber-500 to-yellow-500 dark:from-amber-600 dark:to-yellow-600",
                     QuestionsCount = 20,
-                    TimeLimit = "22 minutes",
+                    TimeLimit = "15 minutes",
                     Difficulty = "Adaptive"
                 },
                 new TestType
@@ -78,7 +78,7 @@ namespace IqTest_server.Data
                     Icon = "Sparkles",
                     Color = "from-purple-500 to-indigo-500 dark:from-purple-600 dark:to-indigo-600",
                     QuestionsCount = 40,
-                    TimeLimit = "45 minutes",
+                    TimeLimit = "35 minutes",
                     Difficulty = "Adaptive"
                 }
             );

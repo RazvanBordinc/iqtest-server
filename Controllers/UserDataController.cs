@@ -81,39 +81,5 @@ namespace IqTest_server.Controllers
             }
         }
 
-        // GDPR: Right to be forgotten
-        [HttpDelete("delete")]
-        public async Task<IActionResult> DeleteUserData()
-        {
-            try
-            {
-                var userId = GetUserId();
-                var user = await _context.Users
-                    .Include(u => u.TestResults)
-                    .Include(u => u.LeaderboardEntries)
-                    .Include(u => u.Answers)
-                    .FirstOrDefaultAsync(u => u.Id == userId);
-
-                if (user == null)
-                {
-                    return NotFound("User not found");
-                }
-
-                // Delete related data
-                _context.Answers.RemoveRange(user.Answers);
-                _context.TestResults.RemoveRange(user.TestResults);
-                _context.LeaderboardEntries.RemoveRange(user.LeaderboardEntries);
-                _context.Users.Remove(user);
-
-                await _context.SaveChangesAsync();
-
-                return Ok(new { message = "User data deleted successfully" });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error deleting user data");
-                return StatusCode(500, "An error occurred while deleting data");
-            }
-        }
     }
 }
