@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Net;
 using System.Threading.Tasks;
 using IqTest_server.Services;
@@ -65,66 +66,185 @@ namespace IqTest_server.Middleware
 
         private bool ShouldRateLimit(string endpoint)
         {
-            // Define which endpoints should be rate limited
-            return endpoint.Contains("/api/auth/login") ||
-                   endpoint.Contains("/api/auth/register") ||
-                   endpoint.Contains("/api/auth/create-user") ||
-                   endpoint.Contains("/api/auth/check-username") ||
-                   endpoint.Contains("/api/auth/login-with-password") ||
-                   endpoint.Contains("/api/auth/refresh-token") ||
-                   endpoint.Contains("/api/test/submit");
+            // API groups that should be rate limited
+            if (endpoint.StartsWith("/api/auth/"))
+            {
+                // All authentication endpoints
+                return true;
+            }
+            
+            if (endpoint.StartsWith("/api/test/"))
+            {
+                // All test-related endpoints
+                return true;
+            }
+            
+            if (endpoint.StartsWith("/api/leaderboard/"))
+            {
+                // All leaderboard endpoints
+                return true;
+            }
+            
+            if (endpoint.StartsWith("/api/profile/"))
+            {
+                // All profile endpoints
+                return true;
+            }
+            
+            if (endpoint.StartsWith("/api/question/"))
+            {
+                // Question endpoints
+                return true;
+            }
+            
+            if (endpoint.StartsWith("/api/results/"))
+            {
+                // Results endpoints
+                return true;
+            }
+            
+            // Special case for user data operations
+            if (endpoint.StartsWith("/api/userdata/"))
+            {
+                return true;
+            }
+            
+            // Default: don't rate limit other endpoints
+            return false;
         }
 
         private (int maxAttempts, TimeSpan window) GetRateLimitConfig(string endpoint)
         {
-            // Different rate limits for different endpoints
+            // Authentication endpoints
             if (endpoint.Contains("/api/auth/login") || endpoint.Contains("/api/auth/login-with-password"))
             {
-                return (15, TimeSpan.FromMinutes(5)); // 15 attempts per 5 minutes
+                return (20, TimeSpan.FromMinutes(5)); // 20 login attempts per 5 minutes
             }
             else if (endpoint.Contains("/api/auth/register") || endpoint.Contains("/api/auth/create-user"))
             {
-                return (10, TimeSpan.FromMinutes(15)); // 10 attempts per 15 minutes
+                return (15, TimeSpan.FromMinutes(15)); // 15 registration attempts per 15 minutes
             }
             else if (endpoint.Contains("/api/auth/check-username"))
             {
-                return (30, TimeSpan.FromMinutes(1)); // 30 attempts per minute
+                return (40, TimeSpan.FromMinutes(1)); // 40 username checks per minute
             }
             else if (endpoint.Contains("/api/auth/refresh-token"))
             {
-                return (20, TimeSpan.FromMinutes(5)); // 20 attempts per 5 minutes
-            }
-            else if (endpoint.Contains("/api/test/submit"))
-            {
-                return (10, TimeSpan.FromMinutes(30)); // 10 test submissions per 30 minutes
+                return (30, TimeSpan.FromMinutes(5)); // 30 token refreshes per 5 minutes
             }
             
-            // Default rate limit
-            return (60, TimeSpan.FromMinutes(1)); // 60 requests per minute
+            // Test endpoints
+            else if (endpoint.Contains("/api/test/submit"))
+            {
+                return (15, TimeSpan.FromMinutes(30)); // 15 test submissions per 30 minutes
+            }
+            else if (endpoint.Contains("/api/test/questions"))
+            {
+                return (30, TimeSpan.FromMinutes(10)); // 30 question requests per 10 minutes
+            }
+            else if (endpoint.Contains("/api/test/"))
+            {
+                return (60, TimeSpan.FromMinutes(5)); // 60 other test related requests per 5 minutes
+            }
+            
+            // Leaderboard endpoints - fairly generous as these are read-only
+            else if (endpoint.StartsWith("/api/leaderboard/"))
+            {
+                return (120, TimeSpan.FromMinutes(5)); // 120 leaderboard requests per 5 minutes
+            }
+            
+            // Profile endpoints
+            else if (endpoint.StartsWith("/api/profile/"))
+            {
+                return (60, TimeSpan.FromMinutes(5)); // 60 profile requests per 5 minutes
+            }
+            
+            // Results endpoints
+            else if (endpoint.StartsWith("/api/results/"))
+            {
+                return (60, TimeSpan.FromMinutes(5)); // 60 results requests per 5 minutes
+            }
+            
+            // User data endpoints
+            else if (endpoint.StartsWith("/api/userdata/"))
+            {
+                return (50, TimeSpan.FromMinutes(5)); // 50 user data requests per 5 minutes
+            }
+            
+            // Question endpoints (except fetching questions for a test)
+            else if (endpoint.StartsWith("/api/question/"))
+            {
+                return (60, TimeSpan.FromMinutes(5)); // 60 question operations per 5 minutes
+            }
+            
+            // Default rate limit for all other API endpoints
+            return (100, TimeSpan.FromMinutes(1)); // 100 requests per minute
         }
 
         private string GetClientIdentifier(HttpContext context)
         {
-            // Try to get IP from X-Forwarded-For header first (for proxies)
-            var forwardedFor = context.Request.Headers["X-Forwarded-For"].ToString();
-            if (!string.IsNullOrEmpty(forwardedFor))
+            // If user is authenticated, use their user ID as part of the identifier
+            string userId = "anonymous";
+            if (context.User?.Identity?.IsAuthenticated == true)
             {
-                var ips = forwardedFor.Split(',');
-                if (ips.Length > 0)
+                var userIdClaim = context.User.Claims.FirstOrDefault(c => 
+                    c.Type == "id" || 
+                    c.Type == "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier");
+                
+                if (userIdClaim != null)
                 {
-                    return ips[0].Trim();
+                    userId = userIdClaim.Value;
                 }
             }
-
-            // Try X-Real-IP header
-            var realIp = context.Request.Headers["X-Real-IP"].ToString();
-            if (!string.IsNullOrEmpty(realIp))
+            
+            // Try headers used by cloud providers and CDNs
+            // Vercel and other modern hosting services
+            var clientIp = context.Request.Headers["X-Vercel-Forwarded-For"].ToString();
+            if (string.IsNullOrEmpty(clientIp))
             {
-                return realIp;
+                clientIp = context.Request.Headers["X-Forwarded-For"].ToString();
+                if (!string.IsNullOrEmpty(clientIp))
+                {
+                    // X-Forwarded-For may contain multiple IPs (client, proxy1, proxy2, ...)
+                    // The leftmost IP is typically the client
+                    var ips = clientIp.Split(',');
+                    if (ips.Length > 0)
+                    {
+                        clientIp = ips[0].Trim();
+                    }
+                }
             }
-
+            
+            // Render and some other hosting services
+            if (string.IsNullOrEmpty(clientIp))
+            {
+                clientIp = context.Request.Headers["X-Real-IP"].ToString();
+            }
+            
+            // Cloudflare
+            if (string.IsNullOrEmpty(clientIp))
+            {
+                clientIp = context.Request.Headers["CF-Connecting-IP"].ToString();
+            }
+            
             // Fall back to connection remote IP
-            return context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+            if (string.IsNullOrEmpty(clientIp))
+            {
+                clientIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+            }
+            
+            // Determine if we have a valid IPv4 or IPv6 address
+            if (clientIp != "unknown" && !System.Net.IPAddress.TryParse(clientIp, out _))
+            {
+                clientIp = "invalid-ip";
+            }
+            
+            // Combine user ID and IP for more granular rate limiting
+            // For authenticated users, we rate limit by user ID
+            // For anonymous users, we rate limit by IP
+            return userId == "anonymous" 
+                ? $"ip:{clientIp}" 
+                : $"user:{userId}";
         }
     }
 

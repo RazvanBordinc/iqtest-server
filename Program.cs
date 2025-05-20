@@ -39,18 +39,23 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
  
 
 
-// CORS policy with container-specific origins
+// CORS policy with specific origins including cloud platforms
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowSpecificOrigin", policy =>
     {
         policy.WithOrigins(
+                // Local development
                 "http://localhost:3000",
-                "http://frontend:3000",  // Docker container service name
-                "http://host.docker.internal:3000",  // Docker host networking
-                "http://127.0.0.1:3000",  // Loopback address
-                "https://localhost:3000",  // HTTPS variant
-                "https://127.0.0.1:3000"  // HTTPS loopback
+                "https://localhost:3000",
+                
+                // Docker development
+                "http://frontend:3000",
+                "http://host.docker.internal:3000",
+                
+                // Vercel deployment - add your actual domains here
+                "https://*.vercel.app",        // All Vercel preview deployments
+                "https://iqtest-app.vercel.app"
             )
             .AllowAnyMethod()
             .AllowAnyHeader()
