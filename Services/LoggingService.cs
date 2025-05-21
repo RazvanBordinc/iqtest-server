@@ -15,6 +15,7 @@ namespace IqTest_server.Services
 {
     /// <summary>
     /// Service for centralized logging with additional Render/Upstash integration
+    /// Handles structured logging across all environments and services
     /// </summary>
     public class LoggingService
     {
@@ -85,7 +86,7 @@ namespace IqTest_server.Services
         /// <summary>
         /// Main logging method that handles all types of logs
         /// </summary>
-        public void Log(LogLevel level, string message, Dictionary<string, object> metadata = null)
+        public void Log(LogLevel level, string message, Dictionary<string, object>? metadata = null)
         {
             // Always log to standard logging system
             LogToStandardOutput(level, message, metadata);
