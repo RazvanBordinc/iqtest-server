@@ -107,7 +107,7 @@ namespace IqTest_server.Controllers
         {
             // Add extra logging for debugging
             _logger.LogInformation("Received register request with model: {ModelInfo}", 
-                new { Username = model?.Username, Email = model?.Email, HasPassword = model?.Password != null });
+                new { Username = model?.Username, Country = model?.Country, Age = model?.Age, HasPassword = model?.Password != null });
                 
             if (model == null)
             {
