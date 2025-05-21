@@ -13,6 +13,7 @@ namespace IqTest_server.Middleware
     {
         private readonly RequestDelegate _next;
         private readonly ILogger<RateLimitingMiddleware> _logger;
+        private HttpContext context; // Add field for context
 
         public RateLimitingMiddleware(RequestDelegate next, ILogger<RateLimitingMiddleware> logger)
         {
@@ -22,6 +23,8 @@ namespace IqTest_server.Middleware
 
         public async Task InvokeAsync(HttpContext context)
         {
+            this.context = context; // Store context for use in other methods
+            
             var endpoint = context.Request.Path.Value.ToLower();
             
             // Check if this endpoint should be rate limited
@@ -115,70 +118,86 @@ namespace IqTest_server.Middleware
 
         private (int maxAttempts, TimeSpan window) GetRateLimitConfig(string endpoint)
         {
+            // Check for direct backend access header
+            var isDirectBackendAccess = context?.Request?.Headers.ContainsKey("X-Direct-Backend-Fallback") == true;
+            
+            // For direct backend access (fallback mode), use higher limits
+            int multiplier = isDirectBackendAccess ? 3 : 1;
+            
+            // Health endpoint should never be rate limited
+            if (endpoint.Contains("/api/health"))
+            {
+                return (1000, TimeSpan.FromMinutes(1)); // 1000 health checks per minute
+            }
+            
             // Authentication endpoints
             if (endpoint.Contains("/api/auth/login") || endpoint.Contains("/api/auth/login-with-password"))
             {
-                return (20, TimeSpan.FromMinutes(5)); // 20 login attempts per 5 minutes
+                return (20 * multiplier, TimeSpan.FromMinutes(5)); // 20 login attempts per 5 minutes
             }
             else if (endpoint.Contains("/api/auth/register") || endpoint.Contains("/api/auth/create-user"))
             {
-                return (15, TimeSpan.FromMinutes(15)); // 15 registration attempts per 15 minutes
+                return (15 * multiplier, TimeSpan.FromMinutes(15)); // 15 registration attempts per 15 minutes
             }
             else if (endpoint.Contains("/api/auth/check-username"))
             {
-                return (40, TimeSpan.FromMinutes(1)); // 40 username checks per minute
+                return (100 * multiplier, TimeSpan.FromMinutes(1)); // 100 username checks per minute
             }
             else if (endpoint.Contains("/api/auth/refresh-token"))
             {
-                return (30, TimeSpan.FromMinutes(5)); // 30 token refreshes per 5 minutes
+                return (30 * multiplier, TimeSpan.FromMinutes(5)); // 30 token refreshes per 5 minutes
             }
             
             // Test endpoints
             else if (endpoint.Contains("/api/test/submit"))
             {
-                return (15, TimeSpan.FromMinutes(30)); // 15 test submissions per 30 minutes
+                return (15 * multiplier, TimeSpan.FromMinutes(30)); // 15 test submissions per 30 minutes
             }
             else if (endpoint.Contains("/api/test/questions"))
             {
-                return (30, TimeSpan.FromMinutes(10)); // 30 question requests per 10 minutes
+                return (60 * multiplier, TimeSpan.FromMinutes(10)); // 60 question requests per 10 minutes
+            }
+            else if (endpoint.Contains("/api/test/types"))
+            {
+                return (200 * multiplier, TimeSpan.FromMinutes(5)); // 200 test types requests per 5 minutes
             }
             else if (endpoint.Contains("/api/test/"))
             {
-                return (60, TimeSpan.FromMinutes(5)); // 60 other test related requests per 5 minutes
+                return (60 * multiplier, TimeSpan.FromMinutes(5)); // 60 other test related requests per 5 minutes
             }
             
             // Leaderboard endpoints - fairly generous as these are read-only
             else if (endpoint.StartsWith("/api/leaderboard/"))
             {
-                return (120, TimeSpan.FromMinutes(5)); // 120 leaderboard requests per 5 minutes
+                return (200 * multiplier, TimeSpan.FromMinutes(5)); // 200 leaderboard requests per 5 minutes
             }
             
             // Profile endpoints
             else if (endpoint.StartsWith("/api/profile/"))
             {
-                return (60, TimeSpan.FromMinutes(5)); // 60 profile requests per 5 minutes
+                return (100 * multiplier, TimeSpan.FromMinutes(5)); // 100 profile requests per 5 minutes
             }
             
             // Results endpoints
             else if (endpoint.StartsWith("/api/results/"))
             {
-                return (60, TimeSpan.FromMinutes(5)); // 60 results requests per 5 minutes
+                return (100 * multiplier, TimeSpan.FromMinutes(5)); // 100 results requests per 5 minutes
             }
             
             // User data endpoints
             else if (endpoint.StartsWith("/api/userdata/"))
             {
-                return (50, TimeSpan.FromMinutes(5)); // 50 user data requests per 5 minutes
+                return (100 * multiplier, TimeSpan.FromMinutes(5)); // 100 user data requests per 5 minutes
             }
             
             // Question endpoints (except fetching questions for a test)
             else if (endpoint.StartsWith("/api/question/"))
             {
-                return (60, TimeSpan.FromMinutes(5)); // 60 question operations per 5 minutes
+                return (100 * multiplier, TimeSpan.FromMinutes(5)); // 100 question operations per 5 minutes
             }
             
             // Default rate limit for all other API endpoints
-            return (100, TimeSpan.FromMinutes(1)); // 100 requests per minute
+            return (200 * multiplier, TimeSpan.FromMinutes(1)); // 200 requests per minute
         }
 
         private string GetClientIdentifier(HttpContext context)
