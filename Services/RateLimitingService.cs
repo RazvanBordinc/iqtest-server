@@ -22,6 +22,18 @@ namespace IqTest_server.Services
             var key = $"rate_limit:{endpoint}:{clientId}";
             var lockKey = $"{key}:lock";
 
+            // Quickly check if the client ID contains "user:" (authenticated user)
+            // If it's an authenticated user, bypass rate limiting for specific endpoints
+            if (clientId.StartsWith("user:") && 
+                (endpoint.Contains("/api/auth/disconnect") || 
+                 endpoint.Contains("/api/auth/logout") || 
+                 endpoint.Contains("/api/auth/check-username") ||
+                 endpoint.Contains("/api/auth/refresh-token")))
+            {
+                _logger.LogInformation($"Bypassing rate limit for authenticated user {clientId} on {endpoint}");
+                return true; // Allow authenticated users to access these endpoints without rate limiting
+            }
+
             try
             {
                 // Use distributed lock to prevent race conditions
@@ -29,17 +41,40 @@ namespace IqTest_server.Services
                 if (!lockAcquired)
                 {
                     _logger.LogWarning("Failed to acquire lock for rate limiting check");
-                    return false; // Block request if we can't acquire lock
+                    
+                    // If we can't acquire lock, allow the request if it's for critical endpoints
+                    if (endpoint.Contains("/api/health") || 
+                        endpoint.Contains("/api/auth/disconnect") || 
+                        endpoint.Contains("/api/auth/logout") ||
+                        endpoint.Contains("/api/auth/check-username") ||
+                        endpoint.Contains("/api/auth/create-user") ||
+                        endpoint.Contains("/api/auth/register"))
+                    {
+                        _logger.LogInformation($"Bypassing rate limit for critical endpoint {endpoint} due to lock acquisition failure");
+                        return true;
+                    }
+                    
+                    return false; // Block request if we can't acquire lock for non-critical endpoints
                 }
 
                 try
                 {
-                    var data = await _cache.GetStringAsync(key);
-                    var attempts = new RateLimitData();
-
-                    if (!string.IsNullOrEmpty(data))
+                    RateLimitData attempts;
+                    
+                    try 
                     {
-                        attempts = JsonConvert.DeserializeObject<RateLimitData>(data);
+                        var data = await _cache.GetStringAsync(key);
+                        attempts = new RateLimitData();
+
+                        if (!string.IsNullOrEmpty(data))
+                        {
+                            attempts = JsonConvert.DeserializeObject<RateLimitData>(data);
+                        }
+                    }
+                    catch (Exception cacheEx)
+                    {
+                        _logger.LogError(cacheEx, $"Error accessing distributed cache for rate limiting. Allowing request.");
+                        return true; // If cache read fails, allow the request
                     }
 
                     // Clean up old attempts
@@ -57,12 +92,21 @@ namespace IqTest_server.Services
                     attempts.Timestamps.Add(DateTime.UtcNow);
 
                     // Save back to cache
-                    var options = new DistributedCacheEntryOptions
+                    try 
                     {
-                        AbsoluteExpirationRelativeToNow = window
-                    };
+                        var options = new DistributedCacheEntryOptions
+                        {
+                            AbsoluteExpirationRelativeToNow = window
+                        };
 
-                    await _cache.SetStringAsync(key, JsonConvert.SerializeObject(attempts), options);
+                        await _cache.SetStringAsync(key, JsonConvert.SerializeObject(attempts), options);
+                    }
+                    catch (Exception cacheEx)
+                    {
+                        _logger.LogError(cacheEx, $"Error writing to distributed cache for rate limiting. Continuing without caching.");
+                        // Allow the request to proceed even if we can't update the cache
+                    }
+                    
                     return true;
                 }
                 finally
@@ -80,10 +124,40 @@ namespace IqTest_server.Services
         public async Task<RateLimitStatus> GetRateLimitStatusAsync(string clientId, string endpoint, int maxAttempts, TimeSpan window)
         {
             var key = $"rate_limit:{endpoint}:{clientId}";
+            
+            // If it's a critical endpoint or authenticated user for specific operations, 
+            // return a more generous rate limit status
+            if ((clientId.StartsWith("user:") && 
+                 (endpoint.Contains("/api/auth/disconnect") || 
+                  endpoint.Contains("/api/auth/logout") || 
+                  endpoint.Contains("/api/auth/check-username") ||
+                  endpoint.Contains("/api/auth/refresh-token"))) ||
+                endpoint.Contains("/api/health"))
+            {
+                return new RateLimitStatus
+                {
+                    AttemptsRemaining = maxAttempts, // Always show max attempts remaining
+                    ResetsAt = DateTime.UtcNow.Add(window)
+                };
+            }
 
             try
             {
-                var data = await _cache.GetStringAsync(key);
+                string data;
+                try 
+                {
+                    data = await _cache.GetStringAsync(key);
+                }
+                catch (Exception cacheEx)
+                {
+                    _logger.LogError(cacheEx, $"Error accessing distributed cache for rate limit status. Using default values.");
+                    return new RateLimitStatus
+                    {
+                        AttemptsRemaining = maxAttempts,
+                        ResetsAt = DateTime.UtcNow.Add(window)
+                    };
+                }
+                
                 if (string.IsNullOrEmpty(data))
                 {
                     return new RateLimitStatus
@@ -93,7 +167,20 @@ namespace IqTest_server.Services
                     };
                 }
 
-                var attempts = JsonConvert.DeserializeObject<RateLimitData>(data);
+                RateLimitData attempts;
+                try
+                {
+                    attempts = JsonConvert.DeserializeObject<RateLimitData>(data);
+                }
+                catch (Exception jsonEx)
+                {
+                    _logger.LogError(jsonEx, $"Error deserializing rate limit data. Using default values.");
+                    return new RateLimitStatus
+                    {
+                        AttemptsRemaining = maxAttempts,
+                        ResetsAt = DateTime.UtcNow.Add(window)
+                    };
+                }
                 
                 // Clean up old attempts
                 var cutoffTime = DateTime.UtcNow.Subtract(window);
@@ -124,9 +211,11 @@ namespace IqTest_server.Services
         {
             var lockValue = Guid.NewGuid().ToString();
             var endTime = DateTime.UtcNow.Add(timeout);
-
+            int attempts = 0;
+            
             while (DateTime.UtcNow < endTime)
             {
+                attempts++;
                 try
                 {
                     var existingLock = await _cache.GetStringAsync(lockKey);
@@ -142,13 +231,34 @@ namespace IqTest_server.Services
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error acquiring distributed lock");
+                    // Special handling for Redis connection failures
+                    if (ex.Message.Contains("Connection") || 
+                        ex.Message.Contains("Timeout") || 
+                        ex.Message.Contains("Redis"))
+                    {
+                        _logger.LogError(ex, "Redis connection error acquiring distributed lock. Allowing operation to continue without lock.");
+                        return true; // Consider the lock acquired if Redis is unavailable
+                    }
+                    
+                    _logger.LogError(ex, $"Error acquiring distributed lock (attempt {attempts})");
+                    
+                    // If we've tried multiple times and keep getting errors, assume Redis is down
+                    if (attempts >= 3)
+                    {
+                        _logger.LogWarning("Multiple failures acquiring lock. Assuming Redis is unavailable and allowing operation.");
+                        return true;
+                    }
                 }
 
-                await Task.Delay(50);
+                // Exponential backoff with jitter to reduce contention
+                var delay = Math.Min(50 * Math.Pow(2, attempts - 1), 1000);
+                var jitter = new Random().Next((int)(delay * 0.8), (int)(delay * 1.2));
+                await Task.Delay((int)jitter);
             }
 
-            return false;
+            // If we timeout waiting for the lock, log but allow operation to continue
+            _logger.LogWarning($"Timeout waiting for distributed lock after {attempts} attempts. Allowing operation to continue.");
+            return true;
         }
 
         private async Task ReleaseLockAsync(string lockKey)
@@ -159,7 +269,17 @@ namespace IqTest_server.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error releasing distributed lock");
+                // If it's a connection issue, just log at debug level to avoid filling logs
+                if (ex.Message.Contains("Connection") || 
+                    ex.Message.Contains("Timeout") || 
+                    ex.Message.Contains("Redis"))
+                {
+                    _logger.LogDebug(ex, "Redis connection error releasing distributed lock. This is non-critical.");
+                }
+                else
+                {
+                    _logger.LogError(ex, "Error releasing distributed lock");
+                }
             }
         }
     }

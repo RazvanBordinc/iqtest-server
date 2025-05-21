@@ -121,11 +121,15 @@ var redisConnectionString = builder.Configuration["Redis:ConnectionString"] ?? "
 var redisOptions = new ConfigurationOptions
 {
     AbortOnConnectFail = false, // Don't fail if Redis is temporarily unavailable
-    ConnectRetry = 5, // Number of times to retry connecting
-    ConnectTimeout = 10000, // Connection timeout in milliseconds
+    ConnectRetry = 10, // Increase retry attempts
+    ConnectTimeout = 30000, // Increase connection timeout to 30 seconds
     Password = "", // Will be set below if present in connection string
     Ssl = false, // Will be set to true for Upstash Redis
-    SyncTimeout = 10000 // Increase sync timeout for cloud-hosted Redis
+    SyncTimeout = 30000, // Increase sync timeout to 30 seconds
+    ResponseTimeout = 30000, // Add response timeout
+    KeepAlive = 60, // Add keep-alive option (seconds)
+    ReconnectRetryPolicy = new ExponentialRetry(5000, 60000), // Use exponential retry with max 60 seconds
+    DefaultDatabase = 0
 };
 
 // Create a logger for Redis configuration
@@ -173,14 +177,76 @@ try
         }
         else
         {
-            // Handle simple host:port format (local Redis or Docker Redis)
-            redisLogger.LogInformation("Configuring standard Redis connection: {Connection}", redisConnectionString);
-            var hostPort = redisConnectionString.Split(':');
-            if (hostPort.Length >= 1)
+            // Handle both simple host:port format and more complex connection string format
+            redisLogger.LogInformation("Configuring standard Redis connection");
+            
+            // Check if we have a more complex connection string with password
+            if (redisConnectionString.Contains(","))
             {
-                var port = hostPort.Length > 1 ? int.Parse(hostPort[1]) : 6379;
-                redisOptions.EndPoints.Add(hostPort[0], port);
-                redisLogger.LogInformation("Successfully configured Redis connection to: {Host}:{Port}", hostPort[0], port);
+                // This looks like a complex connection string, try to parse it
+                var parts = redisConnectionString.Split(',');
+                string host = "localhost";
+                int port = 6379;
+                
+                // Extract host:port from the first part
+                var hostPortPart = parts[0];
+                var hostPortSplit = hostPortPart.Split(':');
+                if (hostPortSplit.Length >= 1)
+                {
+                    host = hostPortSplit[0];
+                    if (hostPortSplit.Length > 1)
+                    {
+                        port = int.Parse(hostPortSplit[1]);
+                    }
+                }
+                
+                // Add the endpoint
+                redisOptions.EndPoints.Add(host, port);
+                
+                // Process other parts (like password, abortConnect, etc.)
+                foreach (var part in parts.Skip(1))
+                {
+                    var keyValue = part.Split('=');
+                    if (keyValue.Length == 2)
+                    {
+                        var key = keyValue[0].Trim().ToLower();
+                        var value = keyValue[1].Trim();
+                        
+                        switch (key)
+                        {
+                            case "password":
+                                redisOptions.Password = value;
+                                break;
+                            case "abortconnect":
+                                if (bool.TryParse(value, out bool abortConnect))
+                                {
+                                    redisOptions.AbortOnConnectFail = abortConnect;
+                                }
+                                break;
+                            case "ssl":
+                                if (bool.TryParse(value, out bool ssl))
+                                {
+                                    redisOptions.Ssl = ssl;
+                                }
+                                break;
+                            // Add more parameters as needed
+                        }
+                    }
+                }
+                
+                redisLogger.LogInformation("Successfully configured Redis connection to: {Host}:{Port} with extended options", host, port);
+            }
+            else
+            {
+                // Simple host:port format
+                var hostPort = redisConnectionString.Split(':');
+                if (hostPort.Length >= 1)
+                {
+                    var host = hostPort[0];
+                    var port = hostPort.Length > 1 ? int.Parse(hostPort[1]) : 6379;
+                    redisOptions.EndPoints.Add(host, port);
+                    redisLogger.LogInformation("Successfully configured Redis connection to: {Host}:{Port}", host, port);
+                }
             }
             else
             {
@@ -207,15 +273,57 @@ builder.Services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(sp =>
 {
     try
     {
-        return ConnectionMultiplexer.Connect(redisOptions);
+        var serviceLogger = sp.GetRequiredService<ILogger<Program>>();
+        serviceLogger.LogInformation("Attempting to connect to Redis with the following settings: " +
+            $"Endpoints: {string.Join(", ", redisOptions.EndPoints.Select(ep => $"{ep.Host}:{ep.Port}"))} " +
+            $"ConnectTimeout: {redisOptions.ConnectTimeout}ms " +
+            $"AbortOnConnectFail: {redisOptions.AbortOnConnectFail} " +
+            $"ConnectRetry: {redisOptions.ConnectRetry} attempts");
+        
+        var multiplexer = ConnectionMultiplexer.Connect(redisOptions);
+        
+        // Verify connection is successful
+        var connectionState = multiplexer.GetStatus();
+        serviceLogger.LogInformation("Redis connection established. Connection state: {State}", connectionState);
+        
+        // Register error and reconnect handlers
+        multiplexer.ConnectionFailed += (sender, args) => {
+            serviceLogger.LogError("Redis connection failed. Endpoint: {Endpoint}, Exception: {Exception}", 
+                args.EndPoint, args.Exception.Message);
+        };
+        
+        multiplexer.ConnectionRestored += (sender, args) => {
+            serviceLogger.LogInformation("Redis connection restored. Endpoint: {Endpoint}", args.EndPoint);
+        };
+        
+        multiplexer.ErrorMessage += (sender, args) => {
+            serviceLogger.LogWarning("Redis error: {Message}", args.Message);
+        };
+        
+        return multiplexer;
     }
     catch (Exception ex)
     {
         var serviceLogger = sp.GetRequiredService<ILogger<Program>>();
         serviceLogger.LogError(ex, "Failed to connect to Redis. The application will continue without Redis functionality.");
         
-        // Create a dummy multiplexer for services that depend on it
-        return ConnectionMultiplexer.Connect("127.0.0.1:6379,abortConnect=false");
+        // Add more detailed error information
+        var endpointList = string.Join(", ", redisOptions.EndPoints.Select(ep => $"{ep.Host}:{ep.Port}"));
+        serviceLogger.LogError("Redis connection details: Endpoints: {Endpoints}, ConnectTimeout: {Timeout}ms", 
+            endpointList, redisOptions.ConnectTimeout);
+        
+        // Create a dummy multiplexer that won't attempt to connect
+        var configOptions = new ConfigurationOptions
+        {
+            AbortOnConnectFail = false,
+            EndPoints = { { "127.0.0.1", 6379 } },
+            ConnectTimeout = 100, // Very short timeout since we know it will fail
+            ConnectRetry = 0, // No retries
+            ReconnectRetryPolicy = null, // No reconnect policy
+        };
+        
+        serviceLogger.LogWarning("Using dummy Redis connection multiplexer to prevent application failure");
+        return ConnectionMultiplexer.Connect(configOptions);
     }
 });
 

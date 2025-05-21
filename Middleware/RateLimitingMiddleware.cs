@@ -81,7 +81,8 @@ namespace IqTest_server.Middleware
                 // Authentication endpoints that should NOT be rate limited
                 if (endpoint.Contains("/check-username") || 
                     endpoint.Contains("/create-user") || 
-                    endpoint.Contains("/register"))
+                    endpoint.Contains("/register") ||
+                    endpoint.Contains("/disconnect"))
                 {
                     return false;
                 }
@@ -159,6 +160,10 @@ namespace IqTest_server.Middleware
             else if (endpoint.Contains("/api/auth/refresh-token"))
             {
                 return (3000 * multiplier, TimeSpan.FromMinutes(5)); // 30000-60000 token refreshes per 5 minutes
+            }
+            else if (endpoint.Contains("/api/auth/disconnect"))
+            {
+                return (10000 * multiplier, TimeSpan.FromMinutes(1)); // 100000-200000 disconnects per minute (very generous)
             }
             
             // Test endpoints
