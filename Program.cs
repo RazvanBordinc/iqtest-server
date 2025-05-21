@@ -75,13 +75,32 @@ builder.Services.AddCors(options =>
                 "http://frontend:3000",
                 "http://host.docker.internal:3000",
                 
-                // Vercel deployment - add your actual domains here
+                // Vercel deployment 
                 "https://*.vercel.app",        // All Vercel preview deployments
-                "https://iqtest-app.vercel.app"
+                "https://iqtest-app.vercel.app",
+                
+                // Production domains
+                "https://iqtest.com",
+                "https://www.iqtest.com",
+                
+                // Allow all domains as a fallback (will be used if AllowCredentials is false)
+                "*"
             )
             .AllowAnyMethod()
             .AllowAnyHeader()
-            .AllowCredentials();  // CRITICAL for cookies
+            .SetIsOriginAllowedToAllowWildcardSubdomains();
+            
+        // For the wildcard fallback, we need a separate policy that doesn't set AllowCredentials
+        // This will be determined at runtime in middleware
+    });
+    
+    // Add a fallback policy that allows all origins but without credentials
+    // This is used when a request comes from an origin not in our list
+    options.AddPolicy("AllowAnyOrigin", policy =>
+    {
+        policy.AllowAnyOrigin()
+              .AllowAnyMethod()
+              .AllowAnyHeader();
     });
 });
 
@@ -395,6 +414,9 @@ app.UseHttpsRedirection();
 app.UseMiddleware<SecurityHeadersMiddleware>();
 
 // CRITICAL: CORS must come before authentication
+// Use our custom dynamic CORS middleware
+app.UseMiddleware<DynamicCorsMiddleware>();
+// Then use the standard CORS middleware 
 app.UseCors("AllowSpecificOrigin");
 
 // CSRF protection

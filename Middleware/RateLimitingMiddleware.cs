@@ -78,8 +78,10 @@ namespace IqTest_server.Middleware
             // API groups that should be rate limited
             if (endpoint.StartsWith("/api/auth/"))
             {
-                // Check-username endpoint should not be rate limited
-                if (endpoint.Contains("/check-username"))
+                // Authentication endpoints that should NOT be rate limited
+                if (endpoint.Contains("/check-username") || 
+                    endpoint.Contains("/create-user") || 
+                    endpoint.Contains("/register"))
                 {
                     return false;
                 }
@@ -133,7 +135,7 @@ namespace IqTest_server.Middleware
             var isDirectBackendAccess = context?.Request?.Headers.ContainsKey("X-Direct-Backend-Fallback") == true;
             
             // For direct backend access (fallback mode), use higher limits
-            int multiplier = isDirectBackendAccess ? 20 : 10;
+            int multiplier = isDirectBackendAccess ? 100 : 50;
             
             // Health endpoint should never be rate limited
             if (endpoint.Contains("/api/health"))

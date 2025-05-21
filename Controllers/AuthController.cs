@@ -24,29 +24,90 @@ namespace IqTest_server.Controllers
         }
 
         [HttpPost("check-username")]
-        public async Task<IActionResult> CheckUsername([FromBody] CheckUsernameDto model)
+        public async Task<IActionResult> CheckUsername([FromBody] object requestData)
         {
             // Add extra logging for debugging
-            _logger.LogInformation("Received check-username request with model: {Model}", model);
-            
-            if (model == null || string.IsNullOrEmpty(model.Username))
+            try
             {
-                _logger.LogWarning("Check username called with empty or null model");
+                _logger.LogInformation("Received check-username request with data: {Data}", 
+                    System.Text.Json.JsonSerializer.Serialize(requestData));
+            }
+            catch
+            {
+                _logger.LogInformation("Received check-username request with non-serializable data");
+            }
+            
+            // Try to extract username from various request formats
+            string username = null;
+            
+            try
+            {
+                // Handle different request formats
+                if (requestData is CheckUsernameDto dto)
+                {
+                    username = dto.Username;
+                }
+                else if (requestData is System.Text.Json.JsonElement jsonElement)
+                {
+                    // Try to get username using case-insensitive property name matching
+                    foreach (var prop in new[] { "Username", "username", "userName" })
+                    {
+                        if (jsonElement.TryGetProperty(prop, out var value) && value.ValueKind == System.Text.Json.JsonValueKind.String)
+                        {
+                            username = value.GetString();
+                            break;
+                        }
+                    }
+                    
+                    // If we couldn't find a property, check if it's just a string
+                    if (username == null && jsonElement.ValueKind == System.Text.Json.JsonValueKind.String)
+                    {
+                        username = jsonElement.GetString();
+                    }
+                }
+                else if (requestData is string strValue)
+                {
+                    username = strValue;
+                }
+                else if (requestData != null)
+                {
+                    // Try reflection as a last resort
+                    var type = requestData.GetType();
+                    foreach (var prop in new[] { "Username", "username", "userName" })
+                    {
+                        var property = type.GetProperty(prop);
+                        if (property != null)
+                        {
+                            username = property.GetValue(requestData) as string;
+                            if (username != null) break;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error extracting username from request data");
+            }
+            
+            // Validate username
+            if (string.IsNullOrEmpty(username))
+            {
+                _logger.LogWarning("Check username called with empty or null username");
                 return BadRequest(new { message = "The Username field is required" });
             }
             
-            if (!ModelState.IsValid)
+            if (username.Length < 3 || username.Length > 100)
             {
-                _logger.LogWarning("Check username model invalid: {ModelState}", ModelState);
-                return BadRequest(ModelState);
+                _logger.LogWarning("Username length invalid: {Length}", username.Length);
+                return BadRequest(new { message = "Username must be between 3 and 100 characters" });
             }
 
             // Security: Don't reveal if username exists to prevent user enumeration
             // This should be combined with registration in production
-            var exists = await _authService.CheckUsernameExistsAsync(model.Username);
+            var exists = await _authService.CheckUsernameExistsAsync(username);
             
             _logger.LogInformation("Username check completed for {Username}, exists: {Exists}", 
-                model.Username, exists);
+                username, exists);
             
             // Always return success to prevent username enumeration
             return Ok(new { 

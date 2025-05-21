@@ -32,7 +32,15 @@ namespace IqTest_server.Middleware
 
         private Task HandleExceptionAsync(HttpContext context, Exception exception)
         {
-            _logger.LogError(exception, "An unhandled exception occurred");
+            // Capture request details for better debugging
+            var requestPath = context.Request.Path;
+            var method = context.Request.Method;
+            var contentType = context.Request.ContentType;
+            var isAuth = context.User?.Identity?.IsAuthenticated ?? false;
+            
+            _logger.LogError(exception, 
+                "An unhandled exception occurred during {Method} request to {Path} with ContentType={ContentType}, IsAuthenticated={IsAuth}", 
+                method, requestPath, contentType, isAuth);
 
             var code = HttpStatusCode.InternalServerError; // 500 if unexpected
             var result = string.Empty;
@@ -55,6 +63,26 @@ namespace IqTest_server.Middleware
 
             // Security: Don't expose internal error details to clients
             var isProduction = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Production";
+            
+            // Add special error handling for auth endpoints
+            if (context.Request.Path.StartsWithSegments("/api/auth"))
+            {
+                _logger.LogError("Authentication error: {Message} at {Path} with method {Method}", 
+                    exception.Message, context.Request.Path, context.Request.Method);
+                
+                // For auth-specific errors, provide better messages
+                if (exception is System.Text.Json.JsonException jsonEx)
+                {
+                    // JSON parsing errors are common in auth endpoints
+                    _logger.LogError(jsonEx, "JSON parsing error in auth endpoint");
+                    code = HttpStatusCode.BadRequest;
+                    result = JsonSerializer.Serialize(new { 
+                        message = isProduction ? "Invalid request format" : jsonEx.Message,
+                        statusCode = (int)code 
+                    });
+                    return context.Response.WriteAsync(result);
+                }
+            }
             
             if (string.IsNullOrEmpty(result))
             {
