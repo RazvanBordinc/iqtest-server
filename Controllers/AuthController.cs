@@ -23,8 +23,10 @@ namespace IqTest_server.Controllers
             _env = env;
         }
 
+        // Support both POST and GET methods for check-username
         [HttpPost("check-username")]
-        public async Task<IActionResult> CheckUsername([FromBody] object requestData)
+        [HttpGet("check-username/{username}")]
+        public async Task<IActionResult> CheckUsername([FromBody] object requestData = null, [FromRoute] string username = null)
         {
             // Add extra logging for debugging
             try
@@ -37,130 +39,289 @@ namespace IqTest_server.Controllers
                 _logger.LogInformation("Received check-username request with non-serializable data");
             }
             
-            // Try to extract username from various request formats
-            string username = null;
+            // Try to extract username from route parameter first, then from request body
+            string usernameValue = username; // From route parameter
+            
+            // If we have a route parameter, use that directly
+            if (string.IsNullOrEmpty(usernameValue) && requestData != null)
+            {
+                try
+                {
+                    // Handle different request formats
+                    if (requestData is CheckUsernameDto dto)
+                    {
+                        usernameValue = dto.Username;
+                    }
+                    else if (requestData is System.Text.Json.JsonElement jsonElement)
+                    {
+                        // Try to get username using case-insensitive property name matching
+                        foreach (var prop in new[] { "Username", "username", "userName" })
+                        {
+                            if (jsonElement.TryGetProperty(prop, out var value) && value.ValueKind == System.Text.Json.JsonValueKind.String)
+                            {
+                                usernameValue = value.GetString();
+                                break;
+                            }
+                        }
+                        
+                        // If we couldn't find a property, check if it's just a string
+                        if (usernameValue == null && jsonElement.ValueKind == System.Text.Json.JsonValueKind.String)
+                        {
+                            usernameValue = jsonElement.GetString();
+                        }
+                    }
+                    else if (requestData is string strValue)
+                    {
+                        usernameValue = strValue;
+                    }
+                    else
+                    {
+                        // Try reflection as a last resort
+                        var type = requestData.GetType();
+                        foreach (var prop in new[] { "Username", "username", "userName" })
+                        {
+                            var property = type.GetProperty(prop);
+                            if (property != null)
+                            {
+                                usernameValue = property.GetValue(requestData) as string;
+                                if (usernameValue != null) break;
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Error extracting username from request data");
+                }
+            }
+            
+            // Try to get the username from query string as a last resort
+            if (string.IsNullOrEmpty(usernameValue))
+            {
+                usernameValue = Request.Query["username"].ToString();
+            }
+            
+            // Validate username
+            if (string.IsNullOrEmpty(usernameValue))
+            {
+                _logger.LogWarning("Check username called with empty or null username");
+                return Ok(new { 
+                    message = "Username check completed", 
+                    exists = false,
+                    isValid = false,
+                    details = "The Username field is required" 
+                });
+            }
+            
+            if (usernameValue.Length < 3 || usernameValue.Length > 100)
+            {
+                _logger.LogWarning("Username length invalid: {Length}", usernameValue.Length);
+                return Ok(new { 
+                    message = "Username check completed", 
+                    exists = false,
+                    isValid = false,
+                    details = "Username must be between 3 and 100 characters" 
+                });
+            }
+
+            // Security: Don't reveal if username exists to prevent user enumeration
+            // This should be combined with registration in production
+            var exists = await _authService.CheckUsernameExistsAsync(usernameValue);
+            
+            _logger.LogInformation("Username check completed for {Username}, exists: {Exists}", 
+                usernameValue, exists);
+            
+            // Always return success to prevent username enumeration
+            return Ok(new { 
+                message = "Username check completed",
+                exists = exists, // Always return existence since we use it for UX
+                isValid = true
+            });
+        }
+
+        [HttpPost("create-user")]
+        public async Task<IActionResult> CreateUser([FromBody] object requestData)
+        {
+            // Add extra logging for debugging
+            try {
+                _logger.LogInformation("Received create-user request with data: {Data}", 
+                    System.Text.Json.JsonSerializer.Serialize(requestData));
+            } catch {
+                _logger.LogInformation("Received create-user request with non-serializable data");
+            }
+            
+            if (requestData == null)
+            {
+                _logger.LogWarning("Create user called with null data");
+                return BadRequest(new { message = "Invalid request data" });
+            }
+            
+            // Try to extract user data from the request
+            CreateUserDto model = null;
             
             try
             {
-                // Handle different request formats
-                if (requestData is CheckUsernameDto dto)
+                // First try to see if it's already a CreateUserDto
+                if (requestData is CreateUserDto dto)
                 {
-                    username = dto.Username;
+                    model = dto;
                 }
+                // Otherwise, try to parse it from JsonElement
                 else if (requestData is System.Text.Json.JsonElement jsonElement)
                 {
-                    // Try to get username using case-insensitive property name matching
-                    foreach (var prop in new[] { "Username", "username", "userName" })
+                    model = new CreateUserDto();
+                    
+                    // Extract Username
+                    if (jsonElement.TryGetProperty("Username", out var usernameValue) || 
+                        jsonElement.TryGetProperty("username", out usernameValue))
                     {
-                        if (jsonElement.TryGetProperty(prop, out var value) && value.ValueKind == System.Text.Json.JsonValueKind.String)
-                        {
-                            username = value.GetString();
-                            break;
-                        }
+                        model.Username = usernameValue.GetString();
                     }
                     
-                    // If we couldn't find a property, check if it's just a string
-                    if (username == null && jsonElement.ValueKind == System.Text.Json.JsonValueKind.String)
+                    // Extract Password
+                    if (jsonElement.TryGetProperty("Password", out var passwordValue) || 
+                        jsonElement.TryGetProperty("password", out passwordValue))
                     {
-                        username = jsonElement.GetString();
+                        model.Password = passwordValue.GetString();
+                    }
+                    
+                    // Extract Country
+                    if (jsonElement.TryGetProperty("Country", out var countryValue) || 
+                        jsonElement.TryGetProperty("country", out countryValue))
+                    {
+                        model.Country = countryValue.GetString();
+                    }
+                    
+                    // Extract Age
+                    if (jsonElement.TryGetProperty("Age", out var ageValue) || 
+                        jsonElement.TryGetProperty("age", out ageValue))
+                    {
+                        if (ageValue.TryGetInt32(out int age))
+                        {
+                            model.Age = age;
+                        }
                     }
                 }
-                else if (requestData is string strValue)
+                // Try to extract properties using reflection
+                else
                 {
-                    username = strValue;
-                }
-                else if (requestData != null)
-                {
-                    // Try reflection as a last resort
+                    model = new CreateUserDto();
                     var type = requestData.GetType();
-                    foreach (var prop in new[] { "Username", "username", "userName" })
+                    
+                    // Try to get Username
+                    var usernameProp = type.GetProperty("Username") ?? type.GetProperty("username");
+                    if (usernameProp != null)
                     {
-                        var property = type.GetProperty(prop);
-                        if (property != null)
+                        model.Username = usernameProp.GetValue(requestData) as string;
+                    }
+                    
+                    // Try to get Password
+                    var passwordProp = type.GetProperty("Password") ?? type.GetProperty("password");
+                    if (passwordProp != null)
+                    {
+                        model.Password = passwordProp.GetValue(requestData) as string;
+                    }
+                    
+                    // Try to get Country
+                    var countryProp = type.GetProperty("Country") ?? type.GetProperty("country");
+                    if (countryProp != null)
+                    {
+                        model.Country = countryProp.GetValue(requestData) as string;
+                    }
+                    
+                    // Try to get Age
+                    var ageProp = type.GetProperty("Age") ?? type.GetProperty("age");
+                    if (ageProp != null)
+                    {
+                        var ageValue = ageProp.GetValue(requestData);
+                        if (ageValue is int intAge)
                         {
-                            username = property.GetValue(requestData) as string;
-                            if (username != null) break;
+                            model.Age = intAge;
+                        }
+                        else if (ageValue is string strAge && int.TryParse(strAge, out int parsedAge))
+                        {
+                            model.Age = parsedAge;
                         }
                     }
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Error extracting username from request data");
+                _logger.LogError(ex, "Error parsing create user request data");
+                return BadRequest(new { message = "Could not parse request data" });
             }
             
-            // Validate username
-            if (string.IsNullOrEmpty(username))
+            // Validate model
+            if (model == null || string.IsNullOrEmpty(model.Username) || string.IsNullOrEmpty(model.Password))
             {
-                _logger.LogWarning("Check username called with empty or null username");
-                return BadRequest(new { message = "The Username field is required" });
+                _logger.LogWarning("Create user model invalid: missing required fields");
+                return BadRequest(new { message = "Username and Password are required" });
             }
             
-            if (username.Length < 3 || username.Length > 100)
+            // Check length constraints
+            if (model.Username.Length < 3 || model.Username.Length > 100)
             {
-                _logger.LogWarning("Username length invalid: {Length}", username.Length);
                 return BadRequest(new { message = "Username must be between 3 and 100 characters" });
             }
-
-            // Security: Don't reveal if username exists to prevent user enumeration
-            // This should be combined with registration in production
-            var exists = await _authService.CheckUsernameExistsAsync(username);
             
-            _logger.LogInformation("Username check completed for {Username}, exists: {Exists}", 
-                username, exists);
-            
-            // Always return success to prevent username enumeration
-            return Ok(new { 
-                message = "Username check completed",
-                // Only reveal existence in development for testing
-                exists = _env.IsDevelopment() ? (bool?)exists : null
-            });
-        }
-
-        [HttpPost("create-user")]
-        public async Task<IActionResult> CreateUser([FromBody] CreateUserDto model)
-        {
-            // Add extra logging for debugging
-            _logger.LogInformation("Received create-user request with model: {ModelInfo}", 
-                new { Username = model?.Username, HasPassword = model?.Password != null });
-                
-            if (model == null)
+            // Check Age constraint
+            if (model.Age.HasValue && (model.Age.Value < 1 || model.Age.Value > 120))
             {
-                _logger.LogWarning("Create user called with null model");
-                return BadRequest(new { message = "Invalid request data" });
-            }
-            
-            if (!ModelState.IsValid)
-            {
-                _logger.LogWarning("Create user model invalid: {ModelState}", ModelState);
-                return BadRequest(ModelState);
+                return BadRequest(new { message = "Age must be between 1 and 120" });
             }
 
-            var (success, message, user) = await _authService.CreateUserAsync(model);
-
-            if (!success)
+            try
             {
-                _logger.LogWarning("User creation failed: {Message}", message);
-                return BadRequest(new { message });
-            }
+                var (success, message, user) = await _authService.CreateUserAsync(model);
 
-            // Set refresh token in HTTP-only cookie
-            if (user != null)
-            {
-                var (_, _, _, refreshToken) = await _authService.LoginAsync(new LoginRequestDto
+                if (!success)
                 {
-                    Username = user.Username,
-                    Password = model.Password
-                });
+                    _logger.LogWarning("User creation failed: {Message}", message);
+                    return BadRequest(new { message });
+                }
 
-                SetRefreshTokenCookie(refreshToken);
-                SetAccessTokenCookie(user.Token);
-                
-                // Set user preferences in cookies
-                SetUserPreferencesCookie(user);
+                if (user == null)
+                {
+                    _logger.LogError("AuthService.CreateUserAsync returned success=true but user is null");
+                    return StatusCode(500, new { message = "Error creating user account" });
+                }
+
+                // Set refresh token in HTTP-only cookie
+                try
+                {
+                    var (loginSuccess, loginMessage, _, refreshToken) = await _authService.LoginAsync(new LoginRequestDto
+                    {
+                        Username = user.Username,
+                        Password = model.Password
+                    });
+
+                    if (loginSuccess && !string.IsNullOrEmpty(refreshToken))
+                    {
+                        SetRefreshTokenCookie(refreshToken);
+                        SetAccessTokenCookie(user.Token);
+                        
+                        // Set user preferences in cookies
+                        SetUserPreferencesCookie(user);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Auto-login after user creation failed: {Message}", loginMessage);
+                        // We still return the user, but client might need to login again
+                    }
+                }
+                catch (Exception loginEx)
+                {
+                    _logger.LogError(loginEx, "Error during auto-login after user creation");
+                    // Continue and return the user, but client might need to login again
+                }
+
+                return Ok(user);
             }
-
-            return Ok(user);
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unhandled exception during user creation");
+                return StatusCode(500, new { message = "An unexpected error occurred during user creation" });
+            }
         }
 
         [HttpPost("register")]
