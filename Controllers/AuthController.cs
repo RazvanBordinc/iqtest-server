@@ -88,7 +88,7 @@ namespace IqTest_server.Controllers
             {
                 var (_, _, _, refreshToken) = await _authService.LoginAsync(new LoginRequestDto
                 {
-                    Email = user.Email,
+                    Username = user.Username,
                     Password = model.Password
                 });
 
@@ -134,7 +134,7 @@ namespace IqTest_server.Controllers
             {
                 var (_, _, _, refreshToken) = await _authService.LoginAsync(new LoginRequestDto
                 {
-                    Email = model.Email,
+                    Username = model.Username,
                     Password = model.Password
                 });
 
@@ -151,7 +151,7 @@ namespace IqTest_server.Controllers
         {
             // Add extra logging for debugging
             _logger.LogInformation("Received login request with model: {ModelInfo}", 
-                new { Email = model?.Email, HasPassword = model?.Password != null });
+                new { Username = model?.Username, HasPassword = model?.Password != null });
                 
             if (model == null)
             {
@@ -186,7 +186,7 @@ namespace IqTest_server.Controllers
         {
             // Add extra logging for debugging
             _logger.LogInformation("Received login-with-password request with model: {ModelInfo}", 
-                new { Email = model?.Email, HasPassword = model?.Password != null });
+                new { Username = model?.Username, HasPassword = model?.Password != null });
                 
             if (model == null)
             {

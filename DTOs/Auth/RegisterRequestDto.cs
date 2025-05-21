@@ -10,11 +10,13 @@ namespace IqTest_server.DTOs.Auth
         public string Username { get; set; }
 
         [Required]
-        [EmailAddress]
-        public string Email { get; set; }
-
-        [Required]
         [StrongPassword]
         public string Password { get; set; }
+        
+        [StringLength(100)]
+        public string Country { get; set; }
+        
+        [Range(1, 120)]
+        public int? Age { get; set; }
     }
 }

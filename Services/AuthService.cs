@@ -50,14 +50,14 @@ namespace IqTest_server.Services
                     return (false, "Username already taken", null);
                 }
 
-                // Generate a unique email for the user (since we're not collecting emails)
-                var email = $"{model.Username.ToLower()}@iqtest.local";
+                // Generate a placeholder email for internal use only
+                var generatedEmail = $"{model.Username.ToLower()}@iqtest.local";
                 
                 // Create new user
                 var user = new User
                 {
                     Username = model.Username,
-                    Email = email,
+                    Email = generatedEmail, // Using placeholder email for internal use
                     Age = model.Age,
                     Country = model.Country,
                     PasswordHash = _passwordHasher.HashPassword(model.Password),
@@ -99,23 +99,22 @@ namespace IqTest_server.Services
         {
             try
             {
-                // Check if email already exists
-                if (await _context.Users.AnyAsync(u => u.Email == model.Email))
-                {
-                    return (false, "Email already registered", null);
-                }
-
                 // Check if username already exists
                 if (await _context.Users.AnyAsync(u => u.Username == model.Username))
                 {
                     return (false, "Username already taken", null);
                 }
 
+                // Generate a placeholder email for internal use only
+                var generatedEmail = $"{model.Username.ToLower()}@iqtest.local";
+                
                 // Create new user
                 var user = new User
                 {
                     Username = model.Username,
-                    Email = model.Email,
+                    Email = generatedEmail, // Using placeholder email for internal use
+                    Country = model.Country,
+                    Age = model.Age,
                     PasswordHash = _passwordHasher.HashPassword(model.Password),
                     CreatedAt = DateTime.UtcNow
                 };
@@ -153,8 +152,8 @@ namespace IqTest_server.Services
         {
             try
             {
-                // Find user by email
-                var user = await _context.Users.SingleOrDefaultAsync(u => u.Email == model.Email);
+                // Find user by username instead of email
+                var user = await _context.Users.SingleOrDefaultAsync(u => u.Username == model.Username);
                 if (user == null)
                 {
                     return (false, "Invalid credentials", null, null);
@@ -163,7 +162,7 @@ namespace IqTest_server.Services
                 // Verify password
                 if (!_passwordHasher.VerifyPassword(user.PasswordHash, model.Password))
                 {
-                    _logger.LogWarning("Failed login attempt for user: {Email}", model.Email);
+                    _logger.LogWarning("Failed login attempt for user: {Username}", model.Username);
                     return (false, "Invalid credentials", null, null);
                 }
 
