@@ -80,6 +80,37 @@ else
 // Database context with connection string validation
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 
+// Log connection string diagnostics (only in production for debugging)
+var isRender = Environment.GetEnvironmentVariable("RENDER_SERVICE_ID") != null;
+var isDevelopment = builder.Environment.IsDevelopment();
+
+if (isRender)
+{
+    Console.WriteLine("=== CONNECTION STRING DIAGNOSTICS ===");
+    Console.WriteLine($"Environment: {builder.Environment.EnvironmentName}");
+    Console.WriteLine($"Is Render: {isRender}");
+    Console.WriteLine($"Connection string from config (masked): {MaskConnectionString(connectionString)}");
+    
+    // Check if environment variable is set
+    var envConnString = Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection");
+    Console.WriteLine($"Environment variable set: {!string.IsNullOrEmpty(envConnString)}");
+    if (!string.IsNullOrEmpty(envConnString))
+    {
+        Console.WriteLine($"Environment connection string (masked): {MaskConnectionString(envConnString)}");
+    }
+    
+    // For Render deployment, if no external DB is configured, warn about localhost issue
+    if (connectionString?.Contains("localhost", StringComparison.OrdinalIgnoreCase) == true)
+    {
+        Console.WriteLine("⚠️  WARNING: Connection string uses 'localhost' which won't work on Render!");
+        Console.WriteLine("💡 You need to either:");
+        Console.WriteLine("   1. Set ConnectionStrings__DefaultConnection environment variable with external DB");
+        Console.WriteLine("   2. Use Render's internal networking if SQL Server is also on Render");
+        Console.WriteLine("   3. The app will use fallback mode for database operations");
+    }
+    Console.WriteLine("=====================================");
+}
+
 // Validate connection string format to catch common issues early
 if (string.IsNullOrEmpty(connectionString))
 {
@@ -173,13 +204,31 @@ catch (Exception ex)
 }
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
+{
     options.UseSqlServer(
         connectionString,
-        sqlServerOptions => sqlServerOptions.EnableRetryOnFailure()
+        sqlServerOptions => 
+        {
+            sqlServerOptions.EnableRetryOnFailure(
+                maxRetryCount: 5,
+                maxRetryDelay: TimeSpan.FromSeconds(30),
+                errorNumbersToAdd: null);
+            
+            // Add command timeout for long-running queries
+            sqlServerOptions.CommandTimeout(30);
+            
+            // For Render deployment, add migration assembly
+            if (Environment.GetEnvironmentVariable("RENDER_SERVICE_ID") != null)
+            {
+                sqlServerOptions.MigrationsAssembly("IqTest-server");
+            }
+        }
     )
     .ConfigureWarnings(warnings => 
         warnings.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning))
-);
+    .EnableSensitiveDataLogging(builder.Environment.IsDevelopment()) // Only in development
+    .EnableDetailedErrors(builder.Environment.IsDevelopment()); // Only in development
+});
 
  
  
@@ -561,6 +610,17 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
+
+// Helper function to mask sensitive connection string data
+static string MaskConnectionString(string connectionString)
+{
+    if (string.IsNullOrEmpty(connectionString)) return "null";
+    
+    return System.Text.RegularExpressions.Regex.Replace(connectionString, 
+        @"(password|pwd|user id|uid)\s*=\s*[^;]+", 
+        "$1=***", 
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+}
 
 // Apply migrations and seed database in development
 if (app.Environment.IsDevelopment())

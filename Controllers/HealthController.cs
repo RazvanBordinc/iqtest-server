@@ -1,7 +1,10 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using Microsoft.EntityFrameworkCore;
+using IqTest_server.Data;
 using System;
+using System.Threading.Tasks;
 
 namespace IqTest_server.Controllers
 {
@@ -62,18 +65,43 @@ namespace IqTest_server.Controllers
         [HttpGet("wake")]
         [AllowAnonymous]
         [Microsoft.AspNetCore.Cors.EnableCors("AllowAll")]
-        public IActionResult Wake()
+        public async Task<IActionResult> Wake([FromServices] ApplicationDbContext context)
         {
             var uptime = DateTime.UtcNow - _startTime;
+            var wakeTime = DateTime.UtcNow;
             
             // Add special CORS headers directly for health endpoint
             Response.Headers["Access-Control-Allow-Origin"] = "*";
             
+            // Test database connectivity
+            bool dbConnected = false;
+            string dbStatus = "Unknown";
+            
+            try
+            {
+                // Quick database connectivity test with timeout
+                using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(5));
+                await context.Database.ExecuteSqlRawAsync("SELECT 1", cts.Token);
+                dbConnected = true;
+                dbStatus = "Connected";
+            }
+            catch (Exception ex)
+            {
+                dbConnected = false;
+                dbStatus = ex.Message.Contains("network-related") || ex.Message.Contains("server was not found") 
+                    ? "Network Error" : "Error";
+                    
+                _logger.LogWarning("Database connectivity test failed during wake: {Error}", ex.Message);
+            }
+            
             // This endpoint is specifically for waking up the server
             return Ok(new { 
                 Status = "Awake",
-                WakeTime = DateTime.UtcNow,
+                WakeTime = wakeTime,
                 IsColdStart = uptime.TotalMinutes < 2,
+                DatabaseConnected = dbConnected,
+                DatabaseStatus = dbStatus,
+                UptimeMinutes = Math.Round(uptime.TotalMinutes, 1),
                 Message = uptime.TotalMinutes < 2 ? "Server was sleeping, now awake!" : "Server was already active"
             });
         }

@@ -37,9 +37,53 @@ namespace IqTest_server.Services
 
         public async Task<bool> CheckUsernameExistsAsync(string username)
         {
+            var cacheKey = $"username_exists:{username.ToLowerInvariant()}";
+            
             try
             {
-                return await _context.Users.AnyAsync(u => u.Username == username);
+                // Try to get from Redis cache first
+                if (_redisService != null)
+                {
+                    var cachedResult = await _redisService.GetAsync(cacheKey);
+                    if (cachedResult != null)
+                    {
+                        _logger.LogDebug("Username check for {Username} served from cache", username);
+                        return bool.Parse(cachedResult);
+                    }
+                }
+                
+                // Query database with timeout
+                using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(5));
+                var exists = await _context.Users.AnyAsync(u => u.Username == username, cts.Token);
+                
+                // Cache the result for 5 minutes
+                if (_redisService != null)
+                {
+                    await _redisService.SetAsync(cacheKey, exists.ToString(), TimeSpan.FromMinutes(5));
+                }
+                
+                return exists;
+            }
+            catch (TaskCanceledException)
+            {
+                _logger.LogWarning("Username check for {Username} timed out after 5 seconds", username);
+                return false; // Assume username doesn't exist on timeout
+            }
+            catch (Microsoft.Data.SqlClient.SqlException sqlEx)
+            {
+                _logger.LogError(sqlEx, "SQL Server connection error checking username {Username}: {Error}", username, sqlEx.Message);
+                
+                // For network-related SQL errors, return false (graceful degradation)
+                if (sqlEx.Message.Contains("network-related") || 
+                    sqlEx.Message.Contains("server was not found") ||
+                    sqlEx.Message.Contains("timeout"))
+                {
+                    _logger.LogWarning("Database connection issue - assuming username {Username} doesn't exist for safety", username);
+                    return false;
+                }
+                
+                // For other SQL errors, rethrow
+                throw;
             }
             catch (Exception ex)
             {
