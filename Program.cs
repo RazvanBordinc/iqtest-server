@@ -247,11 +247,11 @@ try
                     redisOptions.EndPoints.Add(host, port);
                     redisLogger.LogInformation("Successfully configured Redis connection to: {Host}:{Port}", host, port);
                 }
-            }
-            else
-            {
-                redisLogger.LogWarning("Invalid Redis connection string format, using default localhost:6379");
-                redisOptions.EndPoints.Add("localhost", 6379);
+                else
+                {
+                    redisLogger.LogWarning("Invalid Redis connection string format, using default localhost:6379");
+                    redisOptions.EndPoints.Add("localhost", 6379);
+                }
             }
         }
     }
@@ -283,7 +283,7 @@ builder.Services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(sp =>
         var multiplexer = ConnectionMultiplexer.Connect(redisOptions);
         
         // Verify connection is successful
-        var connectionState = multiplexer.GetStatus();
+        var connectionState = multiplexer.IsConnected ? "Connected" : "Disconnected";
         serviceLogger.LogInformation("Redis connection established. Connection state: {State}", connectionState);
         
         // Register error and reconnect handlers

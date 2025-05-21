@@ -21,11 +21,23 @@ namespace IqTest_server.Middleware
             // Important: This must match the WithOrigins list in Program.cs
             _allowedOrigins = new[]
             {
+                // Local development
                 "http://localhost:3000",
                 "https://localhost:3000",
+                
+                // Docker development
                 "http://frontend:3000",
                 "http://host.docker.internal:3000",
-                "https://iqtest-app.vercel.app"
+                
+                // Vercel deployment 
+                "https://*.vercel.app",        // All Vercel preview deployments
+                "https://iqtest-app.vercel.app",
+                
+                // Production domains
+                "https://iqtest.com",
+                "https://www.iqtest.com"
+                
+                // Note: We don't include "*" here as it's a special case
             };
         }
 
