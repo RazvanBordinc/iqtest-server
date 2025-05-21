@@ -121,13 +121,44 @@ namespace IqTest_server.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error during user creation for username: {Username}", model.Username);
+                _logger.LogError(ex, "Error during user creation for username: {Username}. Exception type: {ExceptionType}, Message: {Message}", 
+                    model.Username, ex.GetType().Name, ex.Message);
+                
+                // Log inner exception details if available
+                if (ex.InnerException != null)
+                {
+                    _logger.LogError("Inner exception: Type: {InnerExceptionType}, Message: {InnerMessage}", 
+                        ex.InnerException.GetType().Name, ex.InnerException.Message);
+                }
                 
                 // Add more detail about specific database error types
                 if (ex.GetType().Name.Contains("DbUpdateException"))
                 {
                     _logger.LogError("Database update exception: {Message}", ex.InnerException?.Message ?? ex.Message);
-                    return (false, "User creation failed due to a database error. Please check your input and try again.", null);
+                    return (false, $"Database error: {ex.InnerException?.Message ?? ex.Message}", null);
+                }
+                
+                // Check for SQL Server specific errors
+                if (ex.GetType().Name.Contains("SqlException") || ex.InnerException?.GetType().Name.Contains("SqlException") == true)
+                {
+                    var sqlMessage = ex.InnerException?.Message ?? ex.Message;
+                    _logger.LogError("SQL Server exception: {SqlMessage}", sqlMessage);
+                    
+                    // Check for specific SQL error patterns
+                    if (sqlMessage.Contains("Cannot open database") || sqlMessage.Contains("Login failed"))
+                    {
+                        return (false, "Database authentication error. Service temporarily unavailable.", null);
+                    }
+                    if (sqlMessage.Contains("timeout") || sqlMessage.Contains("Timeout"))
+                    {
+                        return (false, "Database timeout error. Please try again.", null);
+                    }
+                    if (sqlMessage.Contains("network") || sqlMessage.Contains("connection"))
+                    {
+                        return (false, "Database connection error. Please try again later.", null);
+                    }
+                    
+                    return (false, $"Database error: {sqlMessage}", null);
                 }
                 
                 // Check for connection errors
@@ -136,7 +167,9 @@ namespace IqTest_server.Services
                     return (false, "Database connection error. Please try again later.", null);
                 }
                 
-                return (false, "User creation failed due to a server error", null);
+                // Return the actual error message for debugging in non-production
+                var errorMessage = ex.InnerException?.Message ?? ex.Message;
+                return (false, $"Server error: {errorMessage}", null);
             }
         }
 
