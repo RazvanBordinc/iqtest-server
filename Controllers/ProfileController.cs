@@ -92,7 +92,7 @@ namespace IqTest_server.Controllers
         }
 
         [HttpGet("test-history")]
-        public async Task<IActionResult> GetTestHistory([FromQuery] int page = 1, [FromQuery] int limit = 5, [FromQuery] string testType = null)
+        public async Task<IActionResult> GetTestHistory([FromQuery] int page = 1, [FromQuery] int limit = 5, [FromQuery] string? testType = null)
         {
             try
             {

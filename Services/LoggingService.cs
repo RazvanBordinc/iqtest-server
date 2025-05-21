@@ -235,7 +235,7 @@ namespace IqTest_server.Services
         /// <summary>
         /// Log API request with timing
         /// </summary>
-        public IDisposable LogApiRequest(string controller, string action, string requestMethod, Dictionary<string, object> additionalInfo = null)
+        public IDisposable LogApiRequest(string controller, string action, string requestMethod, Dictionary<string, object>? additionalInfo = null)
         {
             var stopwatch = new Stopwatch();
             stopwatch.Start();
@@ -293,8 +293,8 @@ namespace IqTest_server.Services
         }
         
         // Shorthand methods for common log levels
-        public void LogInfo(string message, Dictionary<string, object> metadata = null) => Log(LogLevel.Information, message, metadata);
-        public void LogError(string message, Exception ex = null, Dictionary<string, object> metadata = null)
+        public void LogInfo(string message, Dictionary<string, object>? metadata = null) => Log(LogLevel.Information, message, metadata);
+        public void LogError(string message, Exception? ex = null, Dictionary<string, object>? metadata = null)
         {
             var combinedMetadata = metadata ?? new Dictionary<string, object>();
             if (ex != null)
@@ -305,11 +305,11 @@ namespace IqTest_server.Services
             }
             Log(LogLevel.Error, message, combinedMetadata);
         }
-        public void LogWarning(string message, Dictionary<string, object> metadata = null) => Log(LogLevel.Warning, message, metadata);
-        public void LogDebug(string message, Dictionary<string, object> metadata = null) => Log(LogLevel.Debug, message, metadata);
+        public void LogWarning(string message, Dictionary<string, object>? metadata = null) => Log(LogLevel.Warning, message, metadata);
+        public void LogDebug(string message, Dictionary<string, object>? metadata = null) => Log(LogLevel.Debug, message, metadata);
         
         // User authentication and activity logging
-        public void LogUserActivity(string userId, string activity, Dictionary<string, object> metadata = null)
+        public void LogUserActivity(string userId, string activity, Dictionary<string, object>? metadata = null)
         {
             var combinedMetadata = metadata ?? new Dictionary<string, object>();
             combinedMetadata["userId"] = userId;
@@ -320,7 +320,7 @@ namespace IqTest_server.Services
         }
         
         // Test activities logging
-        public void LogTestActivity(string userId, string testType, string activity, Dictionary<string, object> metadata = null)
+        public void LogTestActivity(string userId, string testType, string activity, Dictionary<string, object>? metadata = null)
         {
             var combinedMetadata = metadata ?? new Dictionary<string, object>();
             combinedMetadata["userId"] = userId;

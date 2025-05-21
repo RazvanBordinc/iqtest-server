@@ -26,7 +26,7 @@ namespace IqTest_server.Controllers
         // Support both POST and GET methods for check-username
         [HttpPost("check-username")]
         [HttpGet("check-username/{username}")]
-        public async Task<IActionResult> CheckUsername([FromBody] object requestData = null, [FromRoute] string username = null)
+        public async Task<IActionResult> CheckUsername([FromBody] object? requestData = null, [FromRoute] string? username = null)
         {
             // Add extra logging for debugging
             try

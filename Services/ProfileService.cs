@@ -121,7 +121,7 @@ namespace IqTest_server.Services
             }
         }
 
-        public async Task<object> GetUserTestHistoryAsync(int userId, int page = 1, int limit = 5, string testType = null)
+        public async Task<object> GetUserTestHistoryAsync(int userId, int page = 1, int limit = 5, string? testType = null)
         {
             try
             {

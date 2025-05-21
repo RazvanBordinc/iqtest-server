@@ -60,7 +60,7 @@ namespace IqTest_server.Controllers
         }
         
         [HttpGet("availability/{testTypeId}")]
-        [ResponseCache(Duration = 60, VaryByQueryString = "testTypeId")] // Add caching for performance
+        [ResponseCache(Duration = 60, VaryByQueryKeys = new string[] { "testTypeId" })] // Add caching for performance
         [AllowAnonymous] // Allow unauthenticated access for initial load
         public async Task<IActionResult> CheckTestAvailability(string testTypeId)
         {
