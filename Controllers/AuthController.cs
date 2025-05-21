@@ -271,16 +271,98 @@ namespace IqTest_server.Controllers
                 return BadRequest(new { message = "Username and Password are required" });
             }
             
-            // Check length constraints
+            // Check length constraints for username
             if (model.Username.Length < 3 || model.Username.Length > 100)
             {
-                return BadRequest(new { message = "Username must be between 3 and 100 characters" });
+                _logger.LogWarning("Username validation failed for {Username}: Length constraint", model.Username);
+                return BadRequest(new { 
+                    message = "Username must be between 3 and 100 characters",
+                    code = "USERNAME_LENGTH_INVALID",
+                    field = "username"
+                });
+            }
+            
+            // Check username format constraints
+            if (!System.Text.RegularExpressions.Regex.IsMatch(model.Username, @"^[a-zA-Z0-9_-]+$"))
+            {
+                _logger.LogWarning("Username validation failed for {Username}: Format constraint", model.Username);
+                return BadRequest(new { 
+                    message = "Username can only contain letters, numbers, underscores, and hyphens",
+                    code = "USERNAME_FORMAT_INVALID",
+                    field = "username"
+                });
             }
             
             // Check Age constraint
             if (model.Age.HasValue && (model.Age.Value < 1 || model.Age.Value > 120))
             {
-                return BadRequest(new { message = "Age must be between 1 and 120" });
+                _logger.LogWarning("Age validation failed: {Age} is not between 1 and 120", model.Age.Value);
+                return BadRequest(new { 
+                    message = "Age must be between 1 and 120",
+                    code = "AGE_RANGE_INVALID",
+                    field = "age"
+                });
+            }
+            
+            // Check Password constraints using the StrongPasswordAttribute logic
+            if (string.IsNullOrEmpty(model.Password))
+            {
+                _logger.LogWarning("Password validation failed: Empty password");
+                return BadRequest(new { 
+                    message = "Password is required",
+                    code = "PASSWORD_REQUIRED",
+                    field = "password"
+                });
+            }
+            
+            if (model.Password.Length < 8)
+            {
+                _logger.LogWarning("Password validation failed: Length constraint");
+                return BadRequest(new { 
+                    message = "Password must be at least 8 characters long",
+                    code = "PASSWORD_TOO_SHORT",
+                    field = "password"
+                });
+            }
+            
+            if (!System.Text.RegularExpressions.Regex.IsMatch(model.Password, @"[A-Z]"))
+            {
+                _logger.LogWarning("Password validation failed: Missing uppercase letter");
+                return BadRequest(new { 
+                    message = "Password must contain at least one uppercase letter",
+                    code = "PASSWORD_NO_UPPERCASE",
+                    field = "password"
+                });
+            }
+            
+            if (!System.Text.RegularExpressions.Regex.IsMatch(model.Password, @"[a-z]"))
+            {
+                _logger.LogWarning("Password validation failed: Missing lowercase letter");
+                return BadRequest(new { 
+                    message = "Password must contain at least one lowercase letter",
+                    code = "PASSWORD_NO_LOWERCASE",
+                    field = "password"
+                });
+            }
+            
+            if (!System.Text.RegularExpressions.Regex.IsMatch(model.Password, @"\d"))
+            {
+                _logger.LogWarning("Password validation failed: Missing digit");
+                return BadRequest(new { 
+                    message = "Password must contain at least one number",
+                    code = "PASSWORD_NO_DIGIT",
+                    field = "password"
+                });
+            }
+            
+            if (!System.Text.RegularExpressions.Regex.IsMatch(model.Password, @"[!@#$%^&*(),.?""':{}|<>]"))
+            {
+                _logger.LogWarning("Password validation failed: Missing special character");
+                return BadRequest(new { 
+                    message = "Password must contain at least one special character",
+                    code = "PASSWORD_NO_SPECIAL_CHAR",
+                    field = "password"
+                });
             }
 
             try
@@ -345,7 +427,26 @@ namespace IqTest_server.Controllers
                     if (dbEx.GetType().Name.Contains("Sql") || dbEx.InnerException?.GetType().Name.Contains("Sql") == true)
                     {
                         _logger.LogError("SQL Exception details: {Message}", dbEx.InnerException?.Message ?? dbEx.Message);
-                        return BadRequest(new { message = "Database error during user creation. Please try again later." });
+                        
+                        // Check for duplicate key errors (username constraint)
+                        if (dbEx.Message.Contains("duplicate") || 
+                            dbEx.Message.Contains("unique constraint") || 
+                            dbEx.Message.Contains("UNIQUE KEY") || 
+                            dbEx.Message.Contains("Violation of UNIQUE KEY") ||
+                            (dbEx.InnerException?.Message?.Contains("duplicate") == true))
+                        {
+                            return BadRequest(new { 
+                                message = "Username already exists",
+                                code = "USERNAME_ALREADY_EXISTS",
+                                field = "username"
+                            });
+                        }
+                        
+                        return StatusCode(503, new { 
+                            message = "The service is temporarily unavailable. Please try again later.",
+                            code = "DATABASE_ERROR",
+                            isRetryable = true
+                        });
                     }
                     
                     throw; // Rethrow to be caught by outer handler
@@ -356,12 +457,31 @@ namespace IqTest_server.Controllers
                 _logger.LogError(ex, "Unhandled exception during user creation for {Username}", model.Username);
                 
                 // Check if it's a connection string related issue
-                if (ex.Message.Contains("connection") || ex.InnerException?.Message.Contains("connection") == true)
+                if (ex.Message.Contains("connection") || ex.InnerException?.Message?.Contains("connection") == true)
                 {
-                    return StatusCode(500, new { message = "Database connection issue. Please try again later." });
+                    return StatusCode(503, new { 
+                        message = "The service is temporarily unavailable. Please try again later.",
+                        code = "CONNECTION_ERROR",
+                        isRetryable = true
+                    });
                 }
                 
-                return StatusCode(500, new { message = "An unexpected error occurred during user creation" });
+                // Handle validation errors with more specific messages
+                if (ex.Message.Contains("validation") || ex.GetType().Name.Contains("Validation"))
+                {
+                    return BadRequest(new {
+                        message = "Invalid input data. Please check your information and try again.",
+                        code = "VALIDATION_ERROR"
+                    });
+                }
+                
+                // Return a user-friendly error message for production
+                return StatusCode(500, new { 
+                    message = "An unexpected error occurred during user creation. Please try again later.",
+                    code = "INTERNAL_SERVER_ERROR",
+                    isRetryable = true,
+                    requestId = HttpContext.TraceIdentifier // Include for log correlation
+                });
             }
         }
 

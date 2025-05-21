@@ -59,12 +59,30 @@ namespace IqTest_server.Services
             }
         }
 
-        public async Task<bool> CanUserTakeTestAsync(int userId, string testTypeId)
+        public async Task<bool> CanUserTakeTestAsync(int userId, string testTypeId, System.Threading.CancellationToken cancellationToken = default)
         {
             try
             {
+                if (userId <= 0) // Anonymous user or invalid user
+                {
+                    return true;
+                }
+                
+                // Use cache key with user ID and test type
                 var key = $"test_attempt:{userId}:{testTypeId}";
-                var lastAttempt = await _redisService.GetAsync<DateTime?>(key);
+                
+                // Try to get from cache with timeout
+                Task<DateTime?> getTask = _redisService.GetAsync<DateTime?>(key);
+                
+                // Add a timeout to the Redis operation
+                if (await Task.WhenAny(getTask, Task.Delay(2000, cancellationToken)) != getTask)
+                {
+                    _logger.LogWarning("Redis GetAsync timed out for user {UserId}, test {TestTypeId}", userId, testTypeId);
+                    return true; // Default to allowing the test on timeout
+                }
+                
+                // Complete the task if it hasn't completed yet
+                var lastAttempt = await getTask;
                 
                 if (!lastAttempt.HasValue)
                 {
@@ -74,19 +92,41 @@ namespace IqTest_server.Services
                 var timeSinceLastAttempt = DateTime.UtcNow - lastAttempt.Value;
                 return timeSinceLastAttempt.TotalHours >= 24;
             }
+            catch (System.Threading.Tasks.TaskCanceledException)
+            {
+                _logger.LogWarning("CanUserTakeTest canceled for user {UserId}, test {TestTypeId}", userId, testTypeId);
+                return true; // Allow test if canceled
+            }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error checking if user can take test");
+                _logger.LogError(ex, "Error checking if user {UserId} can take test {TestTypeId}", userId, testTypeId);
                 return true; // Allow test in case of error
             }
         }
         
-        public async Task<TimeSpan?> GetTimeUntilNextAttemptAsync(int userId, string testTypeId)
+        public async Task<TimeSpan?> GetTimeUntilNextAttemptAsync(int userId, string testTypeId, System.Threading.CancellationToken cancellationToken = default)
         {
             try
             {
+                if (userId <= 0) // Anonymous user or invalid user
+                {
+                    return null; // No cooldown for anonymous users
+                }
+                
                 var key = $"test_attempt:{userId}:{testTypeId}";
-                var lastAttempt = await _redisService.GetAsync<DateTime?>(key);
+                
+                // Try to get from cache with timeout
+                Task<DateTime?> getTask = _redisService.GetAsync<DateTime?>(key);
+                
+                // Add a timeout to the Redis operation
+                if (await Task.WhenAny(getTask, Task.Delay(2000, cancellationToken)) != getTask)
+                {
+                    _logger.LogWarning("Redis GetAsync timed out for calculating cooldown: user {UserId}, test {TestTypeId}", userId, testTypeId);
+                    return null; // No cooldown on timeout
+                }
+                
+                // Complete the task if it hasn't completed yet
+                var lastAttempt = await getTask;
                 
                 if (!lastAttempt.HasValue)
                 {
@@ -101,10 +141,15 @@ namespace IqTest_server.Services
                 
                 return TimeSpan.FromHours(24) - timeSinceLastAttempt;
             }
+            catch (System.Threading.Tasks.TaskCanceledException)
+            {
+                _logger.LogWarning("GetTimeUntilNextAttempt canceled for user {UserId}, test {TestTypeId}", userId, testTypeId);
+                return null; // No cooldown if canceled
+            }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting time until next attempt");
-                return null;
+                _logger.LogError(ex, "Error getting time until next attempt for user {UserId}, test {TestTypeId}", userId, testTypeId);
+                return null; // No cooldown in case of error
             }
         }
 

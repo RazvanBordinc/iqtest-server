@@ -60,18 +60,87 @@ namespace IqTest_server.Controllers
         }
         
         [HttpGet("availability/{testTypeId}")]
+        [ResponseCache(Duration = 60, VaryByQueryString = "testTypeId")] // Add caching for performance
+        [AllowAnonymous] // Allow unauthenticated access for initial load
         public async Task<IActionResult> CheckTestAvailability(string testTypeId)
         {
-            var userId = GetUserId();
-            var canTakeTest = await _testService.CanUserTakeTestAsync(userId, testTypeId);
-            var timeUntilNext = await _testService.GetTimeUntilNextAttemptAsync(userId, testTypeId);
+            // Add timeout for this operation
+            using var cts = new System.Threading.CancellationTokenSource(5000); // 5 second timeout
             
-            return Ok(new 
+            try
             {
-                canTake = canTakeTest,
-                timeUntilNext = timeUntilNext?.TotalSeconds,
-                message = canTakeTest ? "Test available" : "You must wait 24 hours between test attempts"
-            });
+                _logger.LogInformation("Checking test availability for test type: {TestTypeId}", testTypeId);
+                
+                // Get userId if authenticated, or use -1 for anonymous access
+                int userId = -1;
+                try
+                {
+                    userId = GetUserId();
+                }
+                catch
+                {
+                    // If not authenticated, just use default anonymous ID
+                    _logger.LogInformation("Anonymous user checking test availability for {TestTypeId}", testTypeId);
+                }
+                
+                // For anonymous users, always return available
+                if (userId <= 0)
+                {
+                    return Ok(new 
+                    {
+                        canTake = true,
+                        timeUntilNext = 0,
+                        message = "Test available (anonymous)",
+                        userId = "anonymous"
+                    });
+                }
+
+                // Run both operations concurrently for authenticated users
+                var canTakeTask = _testService.CanUserTakeTestAsync(userId, testTypeId, cts.Token);
+                var timeUntilNextTask = _testService.GetTimeUntilNextAttemptAsync(userId, testTypeId, cts.Token);
+                
+                // Wait for both tasks to complete
+                await Task.WhenAll(canTakeTask, timeUntilNextTask);
+                
+                var canTakeTest = await canTakeTask;
+                var timeUntilNext = await timeUntilNextTask;
+                
+                _logger.LogInformation("Test availability check completed for {TestTypeId}: CanTake={CanTake}", 
+                    testTypeId, canTakeTest);
+                
+                return Ok(new 
+                {
+                    canTake = canTakeTest,
+                    timeUntilNext = timeUntilNext?.TotalSeconds,
+                    message = canTakeTest ? "Test available" : "You must wait 24 hours between test attempts"
+                });
+            }
+            catch (System.Threading.Tasks.TaskCanceledException)
+            {
+                _logger.LogWarning("Test availability check timed out for {TestTypeId}", testTypeId);
+                
+                // Return a fallback response on timeout
+                return Ok(new 
+                {
+                    canTake = true, // Default to allow the test
+                    timeUntilNext = 0,
+                    message = "Test availability check timed out, allowing test by default",
+                    isTimeout = true
+                });
+            }
+            catch (System.Exception ex)
+            {
+                _logger.LogError(ex, "Error checking test availability for {TestTypeId}", testTypeId);
+                
+                // Return a fallback response on other errors
+                return Ok(new 
+                {
+                    canTake = true, // Default to allow the test
+                    timeUntilNext = 0,
+                    message = "Error checking test availability, allowing test by default",
+                    isError = true
+                });
+            }
         }
 
         [HttpPost("submit")]

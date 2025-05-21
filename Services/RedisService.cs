@@ -144,7 +144,7 @@ namespace IqTest_server.Services
             }
         }
 
-        public async Task<T> GetAsync<T>(string key)
+        public async Task<T> GetAsync<T>(string key, System.Threading.CancellationToken cancellationToken = default)
         {
             // Try to reconnect if Redis was previously unavailable
             if (!_isRedisAvailable)
@@ -163,6 +163,9 @@ namespace IqTest_server.Services
             
             try
             {
+                // Check if operation is canceled
+                cancellationToken.ThrowIfCancellationRequested();
+                
                 // Log Redis operation
                 _loggingService.LogDebug($"Redis GET: {key}", new Dictionary<string, object>
                 {
@@ -172,7 +175,44 @@ namespace IqTest_server.Services
                     { "isUpstash", _isUpstash }
                 });
                 
-                var value = await _database.StringGetAsync(key);
+                // Create a task for the Redis operation
+                var getTask = _database.StringGetAsync(key);
+                
+                // Add a timeout to the Redis operation
+                TimeSpan operationTimeout = TimeSpan.FromSeconds(2); // 2-second timeout
+                
+                // Wait for either the Redis operation or the timeout/cancellation
+                Task completedTask;
+                if (cancellationToken != default)
+                {
+                    completedTask = await Task.WhenAny(getTask, Task.Delay(operationTimeout, cancellationToken));
+                }
+                else
+                {
+                    completedTask = await Task.WhenAny(getTask, Task.Delay(operationTimeout));
+                }
+                
+                // If Redis operation wasn't the first to complete
+                if (completedTask != getTask)
+                {
+                    stopwatch.Stop();
+                    _logger.LogWarning("Redis GET operation timed out for key: {Key} after {Elapsed}ms", 
+                        key, stopwatch.ElapsedMilliseconds);
+                    
+                    _loggingService.LogWarning($"Redis GET timeout: {key}", new Dictionary<string, object>
+                    {
+                        { "operation", "GET" },
+                        { "key", key },
+                        { "durationMs", stopwatch.ElapsedMilliseconds },
+                        { "timedOut", true }
+                    });
+                    
+                    // Consider Redis unavailable after multiple timeouts
+                    return default;
+                }
+                
+                // Redis operation completed, get the result
+                var value = await getTask;
                 stopwatch.Stop();
                 
                 if (value.IsNullOrEmpty)
@@ -205,6 +245,12 @@ namespace IqTest_server.Services
                 });
                 
                 return result;
+            }
+            catch (System.Threading.Tasks.TaskCanceledException)
+            {
+                stopwatch.Stop();
+                _logger.LogWarning("Redis GET operation was canceled for key: {Key}", key);
+                return default;
             }
             catch (Exception ex)
             {
