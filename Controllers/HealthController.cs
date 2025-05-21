@@ -22,6 +22,7 @@ namespace IqTest_server.Controllers
         public IActionResult Get()
         {
             var uptime = DateTime.UtcNow - _startTime;
+            var isColdStart = uptime.TotalMinutes < 2; // Consider it a cold start if uptime < 2 minutes
             
             // Add special CORS headers directly for health endpoint
             Response.Headers["Access-Control-Allow-Origin"] = "*";
@@ -31,6 +32,9 @@ namespace IqTest_server.Controllers
                 Status = "Healthy",
                 Timestamp = DateTime.UtcNow,
                 Uptime = uptime.ToString(),
+                UptimeMinutes = Math.Round(uptime.TotalMinutes, 1),
+                IsColdStart = isColdStart,
+                IsRender = Environment.GetEnvironmentVariable("RENDER_SERVICE_ID") != null,
                 Environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production"
             });
         }
@@ -42,10 +46,36 @@ namespace IqTest_server.Controllers
         [Microsoft.AspNetCore.Cors.EnableCors("AllowAll")]
         public IActionResult Ping()
         {
+            var uptime = DateTime.UtcNow - _startTime;
+            
             // Add special CORS headers directly for health endpoint
             Response.Headers["Access-Control-Allow-Origin"] = "*";
             
-            return Ok(new { Status = "OK" });
+            return Ok(new { 
+                Status = "OK",
+                Timestamp = DateTime.UtcNow,
+                IsColdStart = uptime.TotalMinutes < 2,
+                ResponseTime = DateTime.UtcNow.ToString("HH:mm:ss.fff")
+            });
+        }
+        
+        [HttpGet("wake")]
+        [AllowAnonymous]
+        [Microsoft.AspNetCore.Cors.EnableCors("AllowAll")]
+        public IActionResult Wake()
+        {
+            var uptime = DateTime.UtcNow - _startTime;
+            
+            // Add special CORS headers directly for health endpoint
+            Response.Headers["Access-Control-Allow-Origin"] = "*";
+            
+            // This endpoint is specifically for waking up the server
+            return Ok(new { 
+                Status = "Awake",
+                WakeTime = DateTime.UtcNow,
+                IsColdStart = uptime.TotalMinutes < 2,
+                Message = uptime.TotalMinutes < 2 ? "Server was sleeping, now awake!" : "Server was already active"
+            });
         }
     }
 }
