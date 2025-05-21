@@ -117,18 +117,17 @@ builder.Services.AddCors(options =>
     });
 });
 
-// Redis for caching and rate limiting - use the same options we'll create later
-// Note: We'll create detailed options later, so just set a placeholder here 
-// that will be overridden when we create the connection multiplexer
+// Get Redis connection string first
+var redisConnectionString = builder.Configuration["Redis:ConnectionString"] ?? "localhost:6379";
+
+// Redis for caching and rate limiting
 builder.Services.AddStackExchangeRedisCache(options =>
 {
-    options.Configuration = "localhost:6379"; // This will be overridden by the connection multiplexer
+    options.Configuration = redisConnectionString; // Use the same connection string
     options.InstanceName = "IqTest";
-    // The actual Redis configuration is handled by the IConnectionMultiplexer registration
 });
 
 // Add Redis connection multiplexer with resilient configuration
-var redisConnectionString = builder.Configuration["Redis:ConnectionString"] ?? "localhost:6379";
 
 // Create Redis configuration options programmatically instead of parsing
 var redisOptions = new ConfigurationOptions
@@ -414,8 +413,13 @@ builder.Services.AddAuthentication(options =>
                 ? authHeader.Substring("Bearer ".Length).Trim()
                 : null;
 
-            // Use the token from cookie or header
-            context.Token = cookieToken ?? headerToken;
+            // Basic validation to avoid passing malformed tokens to the JWT handler
+            // Only set the token if it's not empty and has at least one dot (indicating JWT format)
+            var tokenToUse = cookieToken ?? headerToken;
+            if (!string.IsNullOrEmpty(tokenToUse) && tokenToUse.Contains("."))
+            {
+                context.Token = tokenToUse;
+            }
 
             return Task.CompletedTask;
         },

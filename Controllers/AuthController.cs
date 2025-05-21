@@ -124,19 +124,32 @@ namespace IqTest_server.Controllers
                 });
             }
 
-            // Security: Don't reveal if username exists to prevent user enumeration
-            // This should be combined with registration in production
-            var exists = await _authService.CheckUsernameExistsAsync(usernameValue);
-            
-            _logger.LogInformation("Username check completed for {Username}, exists: {Exists}", 
-                usernameValue, exists);
-            
-            // Always return success to prevent username enumeration
-            return Ok(new { 
-                message = "Username check completed",
-                exists = exists, // Always return existence since we use it for UX
-                isValid = true
-            });
+            try
+            {
+                // Security: Don't reveal if username exists to prevent user enumeration
+                // This should be combined with registration in production
+                var exists = await _authService.CheckUsernameExistsAsync(usernameValue);
+                
+                _logger.LogInformation("Username check completed for {Username}, exists: {Exists}", 
+                    usernameValue, exists);
+                
+                // Always return success to prevent username enumeration
+                return Ok(new { 
+                    message = "Username check completed",
+                    exists = exists, // Always return existence since we use it for UX
+                    isValid = true
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in username check database operation");
+                // Return a fallback response to prevent breaking the client flow
+                return Ok(new { 
+                    message = "Username check completed",
+                    exists = false, // Assume username doesn't exist if there's a DB error
+                    isValid = true
+                });
+            }
         }
 
         [HttpPost("create-user")]
