@@ -27,7 +27,37 @@ builder.Services.AddLogging(logging =>
     logging.ClearProviders();
     logging.AddConsole();
     logging.AddDebug();
+    
+    // Configure logging levels based on environment
+    logging.SetMinimumLevel(LogLevel.Information);
+    
+    // Set minimum log levels for specific categories
+    logging.AddFilter("Microsoft", LogLevel.Warning);
+    logging.AddFilter("System", LogLevel.Warning);
+    logging.AddFilter("Microsoft.AspNetCore.Mvc", LogLevel.Warning);
+    logging.AddFilter("Microsoft.AspNetCore.Hosting", LogLevel.Information);
+    
+    // Custom logging configuration for Render deployment
+    if (Environment.GetEnvironmentVariable("RENDER_SERVICE_ID") != null)
+    {
+        logging.AddFilter("IqTest_server", LogLevel.Information);
+    }
+    
+    // Development specific logging
+    if (builder.Environment.IsDevelopment())
+    {
+        logging.AddFilter("IqTest_server", LogLevel.Debug);
+    }
 });
+
+// Register custom HTTP client for logging service
+builder.Services.AddHttpClient("Logging", client =>
+{
+    client.DefaultRequestHeaders.Add("Accept", "application/json");
+});
+
+// Add the custom logging service
+builder.Services.AddSingleton<IqTest_server.Services.LoggingService>();
 
 // Configure Data Protection with in-memory keys for free tier
 // This approach keeps keys in memory, which means they'll be regenerated on service restart
@@ -533,6 +563,9 @@ app.UseMiddleware<CsrfProtectionMiddleware>();
 
 // Rate limiting middleware
 app.UseMiddleware<RateLimitingMiddleware>();
+
+// Request logging middleware (must be before auth to capture all requests)
+app.UseMiddleware<RequestLoggingMiddleware>();
 
 app.UseAuthentication();
 app.UseAuthorization();

@@ -1,10 +1,13 @@
-﻿using System;
+using System;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using StackExchange.Redis;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
+using Microsoft.Extensions.Caching.Distributed;
 using QuestionSetItem = IqTest_server.Services.GithubService.QuestionSetItem;
 
 namespace IqTest_server.Services
@@ -13,17 +16,25 @@ namespace IqTest_server.Services
     {
         private readonly IConnectionMultiplexer _redis;
         private readonly ILogger<RedisService> _logger;
+        private readonly LoggingService _loggingService;
         private readonly IDatabase _database;
+        private readonly IConfiguration _configuration;
         private readonly TimeSpan _defaultExpiry = TimeSpan.FromDays(7); // Cache for a week by default
+        private readonly bool _isUpstash;
+        private readonly string _redisConnectionString;
 
         private bool _isRedisAvailable = true;
 
         public RedisService(
             IConnectionMultiplexer redis,
-            ILogger<RedisService> logger)
+            ILogger<RedisService> logger,
+            LoggingService loggingService,
+            IConfiguration configuration)
         {
             _redis = redis;
             _logger = logger;
+            _loggingService = loggingService;
+            _configuration = configuration;
             
             try
             {
@@ -31,6 +42,23 @@ namespace IqTest_server.Services
                 // Test connection
                 var ping = _database.Ping();
                 _logger.LogInformation("Redis connection established successfully. Ping: {Ping}ms", ping.TotalMilliseconds);
+                
+                // Determine if we're using Upstash Redis
+                _redisConnectionString = _configuration["Redis:ConnectionString"] ?? "localhost:6379";
+                _isUpstash = _redisConnectionString.Contains("upstash") || _redisConnectionString.Contains("rediss://");
+                
+                // Log Redis connection details
+                var redisEndpoints = _redis.GetEndPoints().Select(ep => ep.ToString()).ToList();
+                
+                _loggingService.LogInfo("Redis service initialized", new Dictionary<string, object>
+                {
+                    { "isUpstash", _isUpstash },
+                    // Don't log full connection string for security
+                    { "connectionType", _isUpstash ? "Upstash Redis" : "Standard Redis" },
+                    { "endpoints", string.Join(", ", redisEndpoints) },
+                    { "clientName", _redis.ClientName },
+                    { "ping", ping.TotalMilliseconds }
+                });
             }
             catch (Exception ex)
             {
@@ -38,6 +66,9 @@ namespace IqTest_server.Services
                 _logger.LogWarning(ex, "Failed to connect to Redis. The system will operate with reduced functionality.");
                 // Create a dummy database to avoid null reference exceptions
                 _database = redis.GetDatabase(-1);
+                
+                _redisConnectionString = _configuration["Redis:ConnectionString"] ?? "localhost:6379";
+                _isUpstash = _redisConnectionString.Contains("upstash") || _redisConnectionString.Contains("rediss://");
             }
         }
 
@@ -55,13 +86,60 @@ namespace IqTest_server.Services
                 }
             }
             
+            var stopwatch = Stopwatch.StartNew();
+            var expiryToUse = expiry ?? _defaultExpiry;
+            var valueType = typeof(T).Name;
+            var valueSize = 0;
+            
             try
             {
                 var jsonData = JsonSerializer.Serialize(value);
-                return await _database.StringSetAsync(key, jsonData, expiry ?? _defaultExpiry);
+                valueSize = jsonData?.Length ?? 0;
+                
+                // Log Redis operation
+                _loggingService.LogDebug($"Redis SET: {key}", new Dictionary<string, object>
+                {
+                    { "operation", "SET" },
+                    { "key", key },
+                    { "valueType", valueType },
+                    { "valueSize", valueSize },
+                    { "expiry", expiryToUse.TotalSeconds },
+                    { "isUpstash", _isUpstash }
+                });
+                
+                var result = await _database.StringSetAsync(key, jsonData, expiryToUse);
+                
+                stopwatch.Stop();
+                
+                // Log successful operation
+                _loggingService.LogDebug($"Redis SET completed: {key}", new Dictionary<string, object>
+                {
+                    { "operation", "SET" },
+                    { "key", key }, 
+                    { "success", result },
+                    { "durationMs", stopwatch.ElapsedMilliseconds },
+                    { "isUpstash", _isUpstash }
+                });
+                
+                return result;
             }
             catch (Exception ex)
             {
+                stopwatch.Stop();
+                
+                // Log error with detailed information
+                _loggingService.LogError($"Redis SET error: {key}", new Dictionary<string, object>
+                {
+                    { "operation", "SET" },
+                    { "key", key },
+                    { "error", ex.Message },
+                    { "stackTrace", ex.StackTrace },
+                    { "valueType", valueType },
+                    { "valueSize", valueSize },
+                    { "durationMs", stopwatch.ElapsedMilliseconds },
+                    { "isUpstash", _isUpstash }
+                });
+                
                 _logger.LogError(ex, "Error setting value in Redis for key: {Key}", key);
                 _isRedisAvailable = false; // Mark Redis as unavailable after error
                 return false;
@@ -82,18 +160,70 @@ namespace IqTest_server.Services
                 }
             }
             
+            var stopwatch = Stopwatch.StartNew();
+            var returnType = typeof(T).Name;
+            
             try
             {
+                // Log Redis operation
+                _loggingService.LogDebug($"Redis GET: {key}", new Dictionary<string, object>
+                {
+                    { "operation", "GET" },
+                    { "key", key },
+                    { "returnType", returnType },
+                    { "isUpstash", _isUpstash }
+                });
+                
                 var value = await _database.StringGetAsync(key);
+                stopwatch.Stop();
+                
                 if (value.IsNullOrEmpty)
                 {
+                    // Log cache miss
+                    _loggingService.LogDebug($"Redis GET miss: {key}", new Dictionary<string, object>
+                    {
+                        { "operation", "GET" },
+                        { "key", key }, 
+                        { "found", false },
+                        { "durationMs", stopwatch.ElapsedMilliseconds },
+                        { "isUpstash", _isUpstash }
+                    });
+                    
                     return default;
                 }
 
-                return JsonSerializer.Deserialize<T>(value);
+                var result = JsonSerializer.Deserialize<T>(value);
+                var valueSize = value.ToString().Length;
+                
+                // Log cache hit
+                _loggingService.LogDebug($"Redis GET hit: {key}", new Dictionary<string, object>
+                {
+                    { "operation", "GET" },
+                    { "key", key }, 
+                    { "found", true },
+                    { "valueSize", valueSize },
+                    { "durationMs", stopwatch.ElapsedMilliseconds },
+                    { "isUpstash", _isUpstash }
+                });
+                
+                return result;
             }
             catch (Exception ex)
             {
+                stopwatch.Stop();
+                
+                // Log error with detailed information
+                _loggingService.LogError($"Redis GET error: {key}", new Dictionary<string, object>
+                {
+                    { "operation", "GET" },
+                    { "key", key },
+                    { "error", ex.Message },
+                    { "stackTrace", ex.StackTrace },
+                    { "returnType", returnType },
+                    { "durationMs", stopwatch.ElapsedMilliseconds },
+                    { "isUpstash", _isUpstash }
+                });
+                
                 _logger.LogError(ex, "Error getting value from Redis for key: {Key}", key);
                 _isRedisAvailable = false; // Mark Redis as unavailable after error
                 return default;
@@ -114,12 +244,48 @@ namespace IqTest_server.Services
                 }
             }
             
+            var stopwatch = Stopwatch.StartNew();
+            
             try
             {
-                return await _database.KeyDeleteAsync(key);
+                // Log Redis operation
+                _loggingService.LogDebug($"Redis DELETE: {key}", new Dictionary<string, object>
+                {
+                    { "operation", "DELETE" },
+                    { "key", key },
+                    { "isUpstash", _isUpstash }
+                });
+                
+                var result = await _database.KeyDeleteAsync(key);
+                stopwatch.Stop();
+                
+                // Log result
+                _loggingService.LogDebug($"Redis DELETE completed: {key}", new Dictionary<string, object>
+                {
+                    { "operation", "DELETE" },
+                    { "key", key },
+                    { "success", result },
+                    { "durationMs", stopwatch.ElapsedMilliseconds },
+                    { "isUpstash", _isUpstash }
+                });
+                
+                return result;
             }
             catch (Exception ex)
             {
+                stopwatch.Stop();
+                
+                // Log error
+                _loggingService.LogError($"Redis DELETE error: {key}", new Dictionary<string, object>
+                {
+                    { "operation", "DELETE" },
+                    { "key", key },
+                    { "error", ex.Message },
+                    { "stackTrace", ex.StackTrace },
+                    { "durationMs", stopwatch.ElapsedMilliseconds },
+                    { "isUpstash", _isUpstash }
+                });
+                
                 _logger.LogError(ex, "Error removing key from Redis: {Key}", key);
                 _isRedisAvailable = false; // Mark Redis as unavailable after error
                 return false;
@@ -140,12 +306,48 @@ namespace IqTest_server.Services
                 }
             }
             
+            var stopwatch = Stopwatch.StartNew();
+            
             try
             {
-                return await _database.KeyExistsAsync(key);
+                // Log Redis operation
+                _loggingService.LogDebug($"Redis EXISTS: {key}", new Dictionary<string, object>
+                {
+                    { "operation", "EXISTS" },
+                    { "key", key },
+                    { "isUpstash", _isUpstash }
+                });
+                
+                var result = await _database.KeyExistsAsync(key);
+                stopwatch.Stop();
+                
+                // Log result
+                _loggingService.LogDebug($"Redis EXISTS completed: {key}", new Dictionary<string, object>
+                {
+                    { "operation", "EXISTS" },
+                    { "key", key },
+                    { "exists", result },
+                    { "durationMs", stopwatch.ElapsedMilliseconds },
+                    { "isUpstash", _isUpstash }
+                });
+                
+                return result;
             }
             catch (Exception ex)
             {
+                stopwatch.Stop();
+                
+                // Log error
+                _loggingService.LogError($"Redis EXISTS error: {key}", new Dictionary<string, object>
+                {
+                    { "operation", "EXISTS" },
+                    { "key", key },
+                    { "error", ex.Message },
+                    { "stackTrace", ex.StackTrace },
+                    { "durationMs", stopwatch.ElapsedMilliseconds },
+                    { "isUpstash", _isUpstash }
+                });
+                
                 _logger.LogError(ex, "Error checking if key exists in Redis: {Key}", key);
                 _isRedisAvailable = false; // Mark Redis as unavailable after error
                 return false;
