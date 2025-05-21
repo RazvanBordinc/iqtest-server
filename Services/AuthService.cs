@@ -37,7 +37,25 @@ namespace IqTest_server.Services
 
         public async Task<bool> CheckUsernameExistsAsync(string username)
         {
-            return await _context.Users.AnyAsync(u => u.Username == username);
+            try
+            {
+                return await _context.Users.AnyAsync(u => u.Username == username);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error checking username existence for {Username}", username);
+                
+                // For connection string errors and other critical DB issues, throw to be handled by controller
+                if (ex.Message.Contains("Keyword not supported") || 
+                    ex.InnerException?.Message?.Contains("Keyword not supported") == true)
+                {
+                    throw; // Let controller handle this specific error
+                }
+                
+                // For other database errors, return false (assume username doesn't exist)
+                _logger.LogWarning("Assuming username doesn't exist due to database error");
+                return false;
+            }
         }
 
         public async Task<(bool Success, string Message, UserDto User)> CreateUserAsync(CreateUserDto model)
@@ -136,6 +154,14 @@ namespace IqTest_server.Services
                 {
                     _logger.LogError("Database update exception: {Message}", ex.InnerException?.Message ?? ex.Message);
                     return (false, $"Database error: {ex.InnerException?.Message ?? ex.Message}", null);
+                }
+                
+                // Check for connection string specific errors
+                if (ex.Message.Contains("Keyword not supported") || ex.InnerException?.Message?.Contains("Keyword not supported") == true)
+                {
+                    var keywordMessage = ex.InnerException?.Message ?? ex.Message;
+                    _logger.LogError("Connection string format error: {Message}", keywordMessage);
+                    return (false, "Database configuration error. Service temporarily unavailable.", null);
                 }
                 
                 // Check for SQL Server specific errors

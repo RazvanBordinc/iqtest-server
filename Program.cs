@@ -77,10 +77,38 @@ else
         .SetDefaultKeyLifetime(TimeSpan.FromDays(365)); // Longer key lifetime to reduce key rotation frequency
 }
 
-// Database context
+// Database context with connection string validation
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+
+// Validate connection string format to catch common issues early
+if (string.IsNullOrEmpty(connectionString))
+{
+    throw new InvalidOperationException("Database connection string 'DefaultConnection' is missing or empty.");
+}
+
+// Check for common problematic patterns that cause "userid" keyword errors
+if (connectionString.Contains("userid", StringComparison.OrdinalIgnoreCase) && 
+    !connectionString.Contains("User ID", StringComparison.Ordinal))
+{
+    // Fix the connection string automatically
+    connectionString = connectionString.Replace("userid=", "User ID=", StringComparison.OrdinalIgnoreCase);
+    Console.WriteLine("WARNING: Fixed connection string 'userid' keyword issue automatically.");
+}
+
+// Additional connection string validation for SQL Server
+try
+{
+    var builder_test = new Microsoft.Data.SqlClient.SqlConnectionStringBuilder(connectionString);
+    Console.WriteLine($"Connection string validation passed. Server: {builder_test.DataSource}, Database: {builder_test.InitialCatalog}");
+}
+catch (Exception ex)
+{
+    throw new InvalidOperationException($"Invalid SQL Server connection string: {ex.Message}. Please check the connection string format.");
+}
+
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(
-        builder.Configuration.GetConnectionString("DefaultConnection"),
+        connectionString,
         sqlServerOptions => sqlServerOptions.EnableRetryOnFailure()
     )
     .ConfigureWarnings(warnings => 
