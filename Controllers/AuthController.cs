@@ -285,54 +285,82 @@ namespace IqTest_server.Controllers
 
             try
             {
-                var (success, message, user) = await _authService.CreateUserAsync(model);
-
-                if (!success)
+                // Add detailed logging before creating user
+                _logger.LogInformation("Creating user with details: Username={Username}, Country={Country}, Age={Age}", 
+                    model.Username, model.Country, model.Age);
+                
+                // Wrap user creation in try/catch to get detailed error info
+                try 
                 {
-                    _logger.LogWarning("User creation failed: {Message}", message);
-                    return BadRequest(new { message });
-                }
+                    var (success, message, user) = await _authService.CreateUserAsync(model);
 
-                if (user == null)
-                {
-                    _logger.LogError("AuthService.CreateUserAsync returned success=true but user is null");
-                    return StatusCode(500, new { message = "Error creating user account" });
-                }
-
-                // Set refresh token in HTTP-only cookie
-                try
-                {
-                    var (loginSuccess, loginMessage, _, refreshToken) = await _authService.LoginAsync(new LoginRequestDto
+                    if (!success)
                     {
-                        Username = user.Username,
-                        Password = model.Password
-                    });
-
-                    if (loginSuccess && !string.IsNullOrEmpty(refreshToken))
-                    {
-                        SetRefreshTokenCookie(refreshToken);
-                        SetAccessTokenCookie(user.Token);
-                        
-                        // Set user preferences in cookies
-                        SetUserPreferencesCookie(user);
+                        _logger.LogWarning("User creation failed: {Message}", message);
+                        return BadRequest(new { message });
                     }
-                    else
-                    {
-                        _logger.LogWarning("Auto-login after user creation failed: {Message}", loginMessage);
-                        // We still return the user, but client might need to login again
-                    }
-                }
-                catch (Exception loginEx)
-                {
-                    _logger.LogError(loginEx, "Error during auto-login after user creation");
-                    // Continue and return the user, but client might need to login again
-                }
 
-                return Ok(user);
+                    if (user == null)
+                    {
+                        _logger.LogError("AuthService.CreateUserAsync returned success=true but user is null");
+                        return StatusCode(500, new { message = "Error creating user account" });
+                    }
+
+                    // Set refresh token in HTTP-only cookie
+                    try
+                    {
+                        var (loginSuccess, loginMessage, _, refreshToken) = await _authService.LoginAsync(new LoginRequestDto
+                        {
+                            Username = user.Username,
+                            Password = model.Password
+                        });
+
+                        if (loginSuccess && !string.IsNullOrEmpty(refreshToken))
+                        {
+                            SetRefreshTokenCookie(refreshToken);
+                            SetAccessTokenCookie(user.Token);
+                            
+                            // Set user preferences in cookies
+                            SetUserPreferencesCookie(user);
+                        }
+                        else
+                        {
+                            _logger.LogWarning("Auto-login after user creation failed: {Message}", loginMessage);
+                            // We still return the user, but client might need to login again
+                        }
+                    }
+                    catch (Exception loginEx)
+                    {
+                        _logger.LogError(loginEx, "Error during auto-login after user creation");
+                        // Continue and return the user, but client might need to login again
+                    }
+
+                    return Ok(user);
+                }
+                catch (Exception dbEx)
+                {
+                    _logger.LogError(dbEx, "Database error during user creation for {Username}", model.Username);
+                    
+                    // Check if it's a SQL error to give more specific feedback
+                    if (dbEx.GetType().Name.Contains("Sql") || dbEx.InnerException?.GetType().Name.Contains("Sql") == true)
+                    {
+                        _logger.LogError("SQL Exception details: {Message}", dbEx.InnerException?.Message ?? dbEx.Message);
+                        return BadRequest(new { message = "Database error during user creation. Please try again later." });
+                    }
+                    
+                    throw; // Rethrow to be caught by outer handler
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Unhandled exception during user creation");
+                _logger.LogError(ex, "Unhandled exception during user creation for {Username}", model.Username);
+                
+                // Check if it's a connection string related issue
+                if (ex.Message.Contains("connection") || ex.InnerException?.Message.Contains("connection") == true)
+                {
+                    return StatusCode(500, new { message = "Database connection issue. Please try again later." });
+                }
+                
                 return StatusCode(500, new { message = "An unexpected error occurred during user creation" });
             }
         }

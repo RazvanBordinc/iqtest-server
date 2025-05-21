@@ -44,14 +44,19 @@ namespace IqTest_server.Services
         {
             try 
             {
+                // Add logging to track execution
+                _logger.LogInformation("Starting user creation process for {Username}", model.Username);
+                
                 // Check if username already exists
                 if (await _context.Users.AnyAsync(u => u.Username == model.Username))
                 {
+                    _logger.LogWarning("Username {Username} already exists, returning error", model.Username);
                     return (false, "Username already taken", null);
                 }
 
                 // Generate a placeholder email for internal use only
                 var generatedEmail = $"{model.Username.ToLower()}@iqtest.local";
+                _logger.LogDebug("Generated email: {Email} for user {Username}", generatedEmail, model.Username);
                 
                 // Create new user
                 var user = new User
@@ -68,14 +73,40 @@ namespace IqTest_server.Services
                 user.RefreshToken = _jwtHelper.GenerateRefreshToken();
                 user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
 
-                _context.Users.Add(user);
-                await _context.SaveChangesAsync();
+                // Log DB operations with try-catch
+                try
+                {
+                    _logger.LogDebug("Adding new user {Username} to database", model.Username);
+                    _context.Users.Add(user);
+                    
+                    _logger.LogDebug("Saving user {Username} to database", model.Username);
+                    await _context.SaveChangesAsync();
+                    _logger.LogInformation("User {Username} saved to database with ID {UserId}", model.Username, user.Id);
+                }
+                catch (Exception dbEx)
+                {
+                    // Log detailed info about database error
+                    if (dbEx.InnerException != null)
+                    {
+                        _logger.LogError(dbEx, "Database inner exception during user creation: {Message}", dbEx.InnerException.Message);
+                    }
+                    throw; // Rethrow to be caught by outer handler
+                }
 
-                // Invalidate the total users count cache
-                await _redisService.RemoveAsync("total_users_count");
+                // Invalidate the total users count cache - handle Redis errors gracefully
+                try
+                {
+                    await _redisService.RemoveAsync("total_users_count");
+                }
+                catch (Exception cacheEx)
+                {
+                    // Log but don't fail if Redis cache operation fails
+                    _logger.LogWarning(cacheEx, "Failed to invalidate Redis cache during user creation");
+                }
 
                 // Generate access token
                 var token = _jwtHelper.GenerateAccessToken(user);
+                _logger.LogDebug("Generated JWT token for user {Username}", model.Username);
 
                 // Return user data and token
                 return (true, "User created successfully", new UserDto
@@ -90,7 +121,21 @@ namespace IqTest_server.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error during user creation");
+                _logger.LogError(ex, "Error during user creation for username: {Username}", model.Username);
+                
+                // Add more detail about specific database error types
+                if (ex.GetType().Name.Contains("DbUpdateException"))
+                {
+                    _logger.LogError("Database update exception: {Message}", ex.InnerException?.Message ?? ex.Message);
+                    return (false, "User creation failed due to a database error. Please check your input and try again.", null);
+                }
+                
+                // Check for connection errors
+                if (ex.Message.Contains("connection") || ex.InnerException?.Message?.Contains("connection") == true)
+                {
+                    return (false, "Database connection error. Please try again later.", null);
+                }
+                
                 return (false, "User creation failed due to a server error", null);
             }
         }
