@@ -86,13 +86,58 @@ if (string.IsNullOrEmpty(connectionString))
     throw new InvalidOperationException("Database connection string 'DefaultConnection' is missing or empty.");
 }
 
-// Check for common problematic patterns that cause "userid" keyword errors
-if (connectionString.Contains("userid", StringComparison.OrdinalIgnoreCase) && 
-    !connectionString.Contains("User ID", StringComparison.Ordinal))
+// Check for common problematic patterns that cause SQL Server keyword errors
+bool connectionStringFixed = false;
+
+// Fix "userid" keyword issue
+if (connectionString.Contains("userid=", StringComparison.OrdinalIgnoreCase) && 
+    !connectionString.Contains("User ID=", StringComparison.Ordinal))
 {
-    // Fix the connection string automatically
     connectionString = connectionString.Replace("userid=", "User ID=", StringComparison.OrdinalIgnoreCase);
-    Console.WriteLine("WARNING: Fixed connection string 'userid' keyword issue automatically.");
+    Console.WriteLine("WARNING: Fixed connection string 'userid' -> 'User ID' keyword issue automatically.");
+    connectionStringFixed = true;
+}
+
+// Fix "UserId" keyword issue (another common variant)
+if (connectionString.Contains("UserId=", StringComparison.Ordinal) && 
+    !connectionString.Contains("User ID=", StringComparison.Ordinal))
+{
+    connectionString = connectionString.Replace("UserId=", "User ID=", StringComparison.Ordinal);
+    Console.WriteLine("WARNING: Fixed connection string 'UserId' -> 'User ID' keyword issue automatically.");
+    connectionStringFixed = true;
+}
+
+if (connectionStringFixed)
+{
+    Console.WriteLine($"Updated connection string: {connectionString}");
+}
+
+// Ensure essential connection parameters are present
+if (!connectionString.Contains("Connect Timeout", StringComparison.OrdinalIgnoreCase) && 
+    !connectionString.Contains("Connection Timeout", StringComparison.OrdinalIgnoreCase))
+{
+    connectionString += ";Connect Timeout=60";
+    Console.WriteLine("Added Connect Timeout=60 to connection string");
+    connectionStringFixed = true;
+}
+
+if (!connectionString.Contains("ConnectRetryCount", StringComparison.OrdinalIgnoreCase))
+{
+    connectionString += ";ConnectRetryCount=3";
+    Console.WriteLine("Added ConnectRetryCount=3 to connection string");
+    connectionStringFixed = true;
+}
+
+if (!connectionString.Contains("ConnectRetryInterval", StringComparison.OrdinalIgnoreCase))
+{
+    connectionString += ";ConnectRetryInterval=10";
+    Console.WriteLine("Added ConnectRetryInterval=10 to connection string");
+    connectionStringFixed = true;
+}
+
+if (connectionStringFixed)
+{
+    Console.WriteLine($"Final connection string: {connectionString}");
 }
 
 // Additional connection string validation for SQL Server
@@ -100,9 +145,30 @@ try
 {
     var builder_test = new Microsoft.Data.SqlClient.SqlConnectionStringBuilder(connectionString);
     Console.WriteLine($"Connection string validation passed. Server: {builder_test.DataSource}, Database: {builder_test.InitialCatalog}");
+    
+    // Log connection details for debugging (without sensitive info)
+    Console.WriteLine($"Connection details - Server: {builder_test.DataSource}, Database: {builder_test.InitialCatalog}, Timeout: {builder_test.ConnectTimeout}");
+    
+    // Additional validation for Render environment
+    if (Environment.GetEnvironmentVariable("RENDER_SERVICE_ID") != null)
+    {
+        Console.WriteLine("Detected Render environment");
+        
+        // Log environment details for debugging
+        Console.WriteLine($"RENDER_SERVICE_ID: {Environment.GetEnvironmentVariable("RENDER_SERVICE_ID")}");
+        Console.WriteLine($"Database server: {builder_test.DataSource}");
+        
+        // Warn about localhost usage in containerized environments
+        if (builder_test.DataSource.Equals("localhost", StringComparison.OrdinalIgnoreCase) || 
+            builder_test.DataSource.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase))
+        {
+            Console.WriteLine("WARNING: Using localhost as database server in containerized environment. This may cause connection issues if SQL Server is in a separate container.");
+        }
+    }
 }
 catch (Exception ex)
 {
+    Console.WriteLine($"Connection string validation error: {ex.Message}");
     throw new InvalidOperationException($"Invalid SQL Server connection string: {ex.Message}. Please check the connection string format.");
 }
 
