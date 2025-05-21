@@ -1,9 +1,11 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Cors;
 using Microsoft.Extensions.Logging;
 using System.Linq;
 
 namespace IqTest_server.Controllers
 {
+    [EnableCors("AllowedOrigins")]
     public class BaseController : ControllerBase
     {
         protected readonly ILogger _logger;

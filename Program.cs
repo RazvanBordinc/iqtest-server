@@ -61,42 +61,25 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
  
 
 
-// CORS policy with specific origins including cloud platforms
+// SIMPLIFIED CORS policy that addresses the remote hosting issues
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowSpecificOrigin", policy =>
+    // For API requests with credentials
+    options.AddPolicy("AllowedOrigins", policy =>
     {
         policy.WithOrigins(
-                // Local development
+                "https://iqtest-app.vercel.app", 
+                "https://iqtest-server-tkhl.onrender.com",
                 "http://localhost:3000",
-                "https://localhost:3000",
-                
-                // Docker development
-                "http://frontend:3000",
-                "http://host.docker.internal:3000",
-                
-                // Vercel deployment 
-                "https://*.vercel.app",        // All Vercel preview deployments
-                "https://iqtest-app.vercel.app",
-                
-                // Production domains
-                "https://iqtest.com",
-                "https://www.iqtest.com",
-                
-                // Allow all domains as a fallback (will be used if AllowCredentials is false)
-                "*"
-            )
-            .AllowAnyMethod()
-            .AllowAnyHeader()
-            .SetIsOriginAllowedToAllowWildcardSubdomains();
-            
-        // For the wildcard fallback, we need a separate policy that doesn't set AllowCredentials
-        // This will be determined at runtime in middleware
+                "https://localhost:3000"
+             )
+             .AllowAnyMethod()
+             .AllowAnyHeader()
+             .AllowCredentials();
     });
     
-    // Add a fallback policy that allows all origins but without credentials
-    // This is used when a request comes from an origin not in our list
-    options.AddPolicy("AllowAnyOrigin", policy =>
+    // For health checks and preflight requests
+    options.AddPolicy("AllowAll", policy =>
     {
         policy.AllowAnyOrigin()
               .AllowAnyMethod()
@@ -541,10 +524,9 @@ app.UseHttpsRedirection();
 app.UseMiddleware<SecurityHeadersMiddleware>();
 
 // CRITICAL: CORS must come before authentication
-// Use our custom dynamic CORS middleware
-app.UseMiddleware<DynamicCorsMiddleware>();
-// Then use the standard CORS middleware 
-app.UseCors("AllowSpecificOrigin");
+// Use our configured CORS policies - AllowedOrigins for auth endpoints,
+// AllowAll as a default fallback with no credentials
+app.UseCors();
 
 // CSRF protection
 app.UseMiddleware<CsrfProtectionMiddleware>();

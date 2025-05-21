@@ -18,9 +18,13 @@ namespace IqTest_server.Controllers
 
         [HttpGet]
         [AllowAnonymous]
+        [Microsoft.AspNetCore.Cors.EnableCors("AllowAll")]
         public IActionResult Get()
         {
             var uptime = DateTime.UtcNow - _startTime;
+            
+            // Add special CORS headers directly for health endpoint
+            Response.Headers["Access-Control-Allow-Origin"] = "*";
             
             return Ok(new
             {
@@ -35,8 +39,12 @@ namespace IqTest_server.Controllers
         // It's used by the frontend to determine if the backend is active
         [HttpGet("ping")]
         [AllowAnonymous]
+        [Microsoft.AspNetCore.Cors.EnableCors("AllowAll")]
         public IActionResult Ping()
         {
+            // Add special CORS headers directly for health endpoint
+            Response.Headers["Access-Control-Allow-Origin"] = "*";
+            
             return Ok(new { Status = "OK" });
         }
     }
