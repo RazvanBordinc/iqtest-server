@@ -274,8 +274,18 @@ builder.Services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(sp =>
     try
     {
         var serviceLogger = sp.GetRequiredService<ILogger<Program>>();
+        // Format endpoints manually with correct type casting for DnsEndPoint
+        string endpoints = string.Join(", ", redisOptions.EndPoints.Select(ep => {
+            if (ep is System.Net.DnsEndPoint dnsEp)
+                return $"{dnsEp.Host}:{dnsEp.Port}";
+            else if (ep is System.Net.IPEndPoint ipEp)
+                return $"{ipEp.Address}:{ipEp.Port}";
+            else
+                return ep.ToString();
+        }));
+            
         serviceLogger.LogInformation("Attempting to connect to Redis with the following settings: " +
-            $"Endpoints: {string.Join(", ", redisOptions.EndPoints.Select(ep => $"{ep.Host}:{ep.Port}"))} " +
+            $"Endpoints: {endpoints} " +
             $"ConnectTimeout: {redisOptions.ConnectTimeout}ms " +
             $"AbortOnConnectFail: {redisOptions.AbortOnConnectFail} " +
             $"ConnectRetry: {redisOptions.ConnectRetry} attempts");
@@ -308,7 +318,16 @@ builder.Services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(sp =>
         serviceLogger.LogError(ex, "Failed to connect to Redis. The application will continue without Redis functionality.");
         
         // Add more detailed error information
-        var endpointList = string.Join(", ", redisOptions.EndPoints.Select(ep => $"{ep.Host}:{ep.Port}"));
+        // Format endpoints manually with correct type casting
+        string endpointList = string.Join(", ", redisOptions.EndPoints.Select(ep => {
+            if (ep is System.Net.DnsEndPoint dnsEp)
+                return $"{dnsEp.Host}:{dnsEp.Port}";
+            else if (ep is System.Net.IPEndPoint ipEp)
+                return $"{ipEp.Address}:{ipEp.Port}";
+            else
+                return ep.ToString();
+        }));
+        
         serviceLogger.LogError("Redis connection details: Endpoints: {Endpoints}, ConnectTimeout: {Timeout}ms", 
             endpointList, redisOptions.ConnectTimeout);
         

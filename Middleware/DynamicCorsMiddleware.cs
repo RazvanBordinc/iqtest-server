@@ -73,7 +73,7 @@ namespace IqTest_server.Middleware
                 // Add Allow-Credentials header only for specified origins
                 if (isAllowedOrigin)
                 {
-                    context.Response.Headers.Add("Access-Control-Allow-Credentials", "true");
+                    context.Response.Headers["Access-Control-Allow-Credentials"] = "true";
                     _logger.LogInformation("Using CORS with credentials for origin: {Origin}", origin);
                 }
                 else
@@ -84,7 +84,7 @@ namespace IqTest_server.Middleware
                 
                 // Add Access-Control-Allow-Origin header with the actual origin, regardless of whether it's allowed or not
                 // The browser will check if the origin matches the Access-Control-Allow-Origin header
-                context.Response.Headers.Add("Access-Control-Allow-Origin", origin);
+                context.Response.Headers["Access-Control-Allow-Origin"] = origin;
             }
 
             // Continue processing
