@@ -26,14 +26,27 @@ namespace IqTest_server.Controllers
         [HttpPost("check-username")]
         public async Task<IActionResult> CheckUsername([FromBody] CheckUsernameDto model)
         {
+            // Add extra logging for debugging
+            _logger.LogInformation("Received check-username request with model: {Model}", model);
+            
+            if (model == null || string.IsNullOrEmpty(model.Username))
+            {
+                _logger.LogWarning("Check username called with empty or null model");
+                return BadRequest(new { message = "The Username field is required" });
+            }
+            
             if (!ModelState.IsValid)
             {
+                _logger.LogWarning("Check username model invalid: {ModelState}", ModelState);
                 return BadRequest(ModelState);
             }
 
             // Security: Don't reveal if username exists to prevent user enumeration
             // This should be combined with registration in production
             var exists = await _authService.CheckUsernameExistsAsync(model.Username);
+            
+            _logger.LogInformation("Username check completed for {Username}, exists: {Exists}", 
+                model.Username, exists);
             
             // Always return success to prevent username enumeration
             return Ok(new { 
@@ -46,8 +59,19 @@ namespace IqTest_server.Controllers
         [HttpPost("create-user")]
         public async Task<IActionResult> CreateUser([FromBody] CreateUserDto model)
         {
+            // Add extra logging for debugging
+            _logger.LogInformation("Received create-user request with model: {ModelInfo}", 
+                new { Username = model?.Username, HasPassword = model?.Password != null });
+                
+            if (model == null)
+            {
+                _logger.LogWarning("Create user called with null model");
+                return BadRequest(new { message = "Invalid request data" });
+            }
+            
             if (!ModelState.IsValid)
             {
+                _logger.LogWarning("Create user model invalid: {ModelState}", ModelState);
                 return BadRequest(ModelState);
             }
 
@@ -81,8 +105,19 @@ namespace IqTest_server.Controllers
         [HttpPost("register")]
         public async Task<IActionResult> Register([FromBody] RegisterRequestDto model)
         {
+            // Add extra logging for debugging
+            _logger.LogInformation("Received register request with model: {ModelInfo}", 
+                new { Username = model?.Username, Email = model?.Email, HasPassword = model?.Password != null });
+                
+            if (model == null)
+            {
+                _logger.LogWarning("Register called with null model");
+                return BadRequest(new { message = "Invalid request data" });
+            }
+            
             if (!ModelState.IsValid)
             {
+                _logger.LogWarning("Register model invalid: {ModelState}", ModelState);
                 return BadRequest(ModelState);
             }
 
@@ -104,6 +139,8 @@ namespace IqTest_server.Controllers
                 });
 
                 SetRefreshTokenCookie(refreshToken);
+                SetAccessTokenCookie(user.Token);
+                SetUserPreferencesCookie(user);
             }
 
             return Ok(user);
@@ -112,8 +149,19 @@ namespace IqTest_server.Controllers
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginRequestDto model)
         {
+            // Add extra logging for debugging
+            _logger.LogInformation("Received login request with model: {ModelInfo}", 
+                new { Email = model?.Email, HasPassword = model?.Password != null });
+                
+            if (model == null)
+            {
+                _logger.LogWarning("Login called with null model");
+                return BadRequest(new { message = "Invalid request data" });
+            }
+            
             if (!ModelState.IsValid)
             {
+                _logger.LogWarning("Login model invalid: {ModelState}", ModelState);
                 return BadRequest(ModelState);
             }
 
@@ -136,8 +184,19 @@ namespace IqTest_server.Controllers
         [HttpPost("login-with-password")]
         public async Task<IActionResult> LoginWithPassword([FromBody] LoginRequestDto model)
         {
+            // Add extra logging for debugging
+            _logger.LogInformation("Received login-with-password request with model: {ModelInfo}", 
+                new { Email = model?.Email, HasPassword = model?.Password != null });
+                
+            if (model == null)
+            {
+                _logger.LogWarning("Login with password called with null model");
+                return BadRequest(new { message = "Invalid request data" });
+            }
+            
             if (!ModelState.IsValid)
             {
+                _logger.LogWarning("Login with password model invalid: {ModelState}", ModelState);
                 return BadRequest(ModelState);
             }
 
@@ -156,6 +215,7 @@ namespace IqTest_server.Controllers
 
             return Ok(user);
         }
+        
         [HttpPost("refresh-token")]
         public async Task<IActionResult> RefreshToken()
         {
@@ -291,7 +351,7 @@ namespace IqTest_server.Controllers
             Response.Cookies.Delete("token", cookieOptions);
             Response.Cookies.Delete("username", cookieOptions);
             Response.Cookies.Delete("age", cookieOptions);
-            Response.Cookies.Delete("gender", cookieOptions);
+            Response.Cookies.Delete("country", cookieOptions); // Changed from gender to country
 
             return Ok(new { message = "Disconnected successfully" });
         }
