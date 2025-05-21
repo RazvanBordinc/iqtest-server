@@ -575,4 +575,24 @@ app.UseMiddleware<ErrorHandlingMiddleware>();
 
 app.MapControllers();
 
+// Special endpoint for checking logging that doesn't require the full controller setup
+app.Map("/api/logging-status", (ILogger<Program> logger, LoggingService loggingService) => 
+{
+    logger.LogInformation("Logging status checked");
+    loggingService.LogInfo("Logging status endpoint accessed", new Dictionary<string, object> 
+    {
+        { "event", "logging_status_check" },
+        { "version", "1.0.1" },
+        { "timestamp", DateTime.UtcNow.ToString("o") }
+    });
+    
+    return Results.Ok(new 
+    { 
+        Status = "Logging system operational",
+        Version = "1.0.1", 
+        Timestamp = DateTime.UtcNow,
+        Environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production"
+    });
+});
+
 app.Run();

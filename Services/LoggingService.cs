@@ -107,6 +107,11 @@ namespace IqTest_server.Services
                 ? metadata.Select(kvp => new KeyValuePair<string, object>(kvp.Key, kvp.Value)).ToList() 
                 : new List<KeyValuePair<string, object>>();
             
+            // Add environment info
+            state.Add(new KeyValuePair<string, object>("environment", _environment));
+            state.Add(new KeyValuePair<string, object>("isRender", _isRender));
+            state.Add(new KeyValuePair<string, object>("timestamp", DateTime.UtcNow.ToString("o")));
+            
             // Add the message to state for structured logging
             state.Add(new KeyValuePair<string, object>("message", message));
             
