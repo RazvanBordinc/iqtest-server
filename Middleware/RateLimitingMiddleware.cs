@@ -69,10 +69,16 @@ namespace IqTest_server.Middleware
 
         private bool ShouldRateLimit(string endpoint)
         {
+            // Health endpoint or username check should never be rate limited
+            if (endpoint.Contains("/api/health") || endpoint.Contains("/api/auth/check-username"))
+            {
+                return false;
+            }
+            
             // API groups that should be rate limited
             if (endpoint.StartsWith("/api/auth/"))
             {
-                // All authentication endpoints
+                // All other authentication endpoints
                 return true;
             }
             
