@@ -128,12 +128,10 @@ namespace IqTest_server.Services
                 stopwatch.Stop();
                 
                 // Log error with detailed information
-                _loggingService.LogError($"Redis SET error: {key}", new Dictionary<string, object>
+                _loggingService.LogError($"Redis SET error: {key}", ex, new Dictionary<string, object>
                 {
                     { "operation", "SET" },
                     { "key", key },
-                    { "error", ex.Message },
-                    { "stackTrace", ex.StackTrace },
                     { "valueType", valueType },
                     { "valueSize", valueSize },
                     { "durationMs", stopwatch.ElapsedMilliseconds },
@@ -213,12 +211,10 @@ namespace IqTest_server.Services
                 stopwatch.Stop();
                 
                 // Log error with detailed information
-                _loggingService.LogError($"Redis GET error: {key}", new Dictionary<string, object>
+                _loggingService.LogError($"Redis GET error: {key}", ex, new Dictionary<string, object>
                 {
                     { "operation", "GET" },
                     { "key", key },
-                    { "error", ex.Message },
-                    { "stackTrace", ex.StackTrace },
                     { "returnType", returnType },
                     { "durationMs", stopwatch.ElapsedMilliseconds },
                     { "isUpstash", _isUpstash }
@@ -276,12 +272,10 @@ namespace IqTest_server.Services
                 stopwatch.Stop();
                 
                 // Log error
-                _loggingService.LogError($"Redis DELETE error: {key}", new Dictionary<string, object>
+                _loggingService.LogError($"Redis DELETE error: {key}", ex, new Dictionary<string, object>
                 {
                     { "operation", "DELETE" },
                     { "key", key },
-                    { "error", ex.Message },
-                    { "stackTrace", ex.StackTrace },
                     { "durationMs", stopwatch.ElapsedMilliseconds },
                     { "isUpstash", _isUpstash }
                 });
@@ -338,12 +332,10 @@ namespace IqTest_server.Services
                 stopwatch.Stop();
                 
                 // Log error
-                _loggingService.LogError($"Redis EXISTS error: {key}", new Dictionary<string, object>
+                _loggingService.LogError($"Redis EXISTS error: {key}", ex, new Dictionary<string, object>
                 {
                     { "operation", "EXISTS" },
                     { "key", key },
-                    { "error", ex.Message },
-                    { "stackTrace", ex.StackTrace },
                     { "durationMs", stopwatch.ElapsedMilliseconds },
                     { "isUpstash", _isUpstash }
                 });
@@ -379,7 +371,7 @@ namespace IqTest_server.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error retrieving question set from Redis for test type: {TestTypeId}", testTypeId);
-                return null;
+                return new List<QuestionSetItem>(); // Return empty list instead of null
             }
         }
 
@@ -402,7 +394,7 @@ namespace IqTest_server.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error retrieving latest question set for test type: {TestTypeId}", testTypeId);
-                return null;
+                return new List<QuestionSetItem>(); // Return empty list instead of null
             }
         }
 

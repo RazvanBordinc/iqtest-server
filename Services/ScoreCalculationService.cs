@@ -102,8 +102,8 @@ namespace IqTest_server.Services
             return (totalScore, accuracy, correctAnswers);
         }
 
-        // Overload for backward compatibility
-        public async Task<(int Score, float Accuracy, Dictionary<int, bool> CorrectAnswers)> CalculateScoreAsync(
+        // Overload for backward compatibility - using sync implementation with Task.FromResult
+        public Task<(int Score, float Accuracy, Dictionary<int, bool> CorrectAnswers)> CalculateScoreAsync(
             List<AnswerDto> userAnswers,
             List<Question> questions)
         {
@@ -153,7 +153,7 @@ namespace IqTest_server.Services
             int totalScore = (int)Math.Round(100 * (double)correctCount / Math.Max(1, questions.Count));
             float accuracy = questions.Count > 0 ? 100f * (float)correctCount / questions.Count : 0;
 
-            return (totalScore, accuracy, correctAnswers);
+            return Task.FromResult((totalScore, accuracy, correctAnswers));
         }
     }
 }
