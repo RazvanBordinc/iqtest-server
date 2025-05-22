@@ -622,21 +622,19 @@ static string MaskConnectionString(string connectionString)
         System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 }
 
-// Apply migrations and seed database in development
-if (app.Environment.IsDevelopment())
+// Apply migrations and seed database in all environments
+using (var scope = app.Services.CreateScope())
 {
-    using (var scope = app.Services.CreateScope())
+    var services = scope.ServiceProvider;
+    var logger = services.GetRequiredService<ILogger<Program>>();
+    
+    try
     {
-        var services = scope.ServiceProvider;
-        var logger = services.GetRequiredService<ILogger<Program>>();
+        var context = services.GetRequiredService<ApplicationDbContext>();
         
-        try
-        {
-            var context = services.GetRequiredService<ApplicationDbContext>();
-            
-            // Apply migrations - this will create database if needed
-            logger.LogInformation("Applying database migrations...");
-            context.Database.Migrate();
+        // Apply migrations - this will create database if needed
+        logger.LogInformation("Applying database migrations...");
+        context.Database.Migrate();
             logger.LogInformation("Database migrations completed successfully");
         }
         catch (Microsoft.Data.SqlClient.SqlException sqlEx) 
@@ -702,6 +700,9 @@ if (app.Environment.IsDevelopment())
         }
     }
 
+// Configure the HTTP request pipeline
+if (app.Environment.IsDevelopment())
+{
     app.UseSwagger();
     app.UseSwaggerUI();
 }
