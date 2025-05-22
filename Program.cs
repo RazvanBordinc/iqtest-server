@@ -609,6 +609,9 @@ builder.Services.AddControllers(options =>
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+// Add Response Caching middleware
+builder.Services.AddResponseCaching();
+
 var app = builder.Build();
 
 // Helper function to mask sensitive connection string data
@@ -708,6 +711,9 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+// Response caching middleware (must come early in pipeline)
+app.UseResponseCaching();
 
 // Security headers
 app.UseMiddleware<SecurityHeadersMiddleware>();
