@@ -18,23 +18,23 @@ namespace IqTest_server.DTOs.Profile
 
     public class TestStatDto
     {
-        public string TestTypeId { get; set; }
-        public string TestTypeName { get; set; }
+        public required string TestTypeId { get; set; }
+        public required string TestTypeName { get; set; }
         public int TestsCompleted { get; set; }
         public int BestScore { get; set; }
         public int AverageScore { get; set; }
         public DateTime LastAttempt { get; set; }
-        public string BestTime { get; set; }
+        public required string BestTime { get; set; }
         public int? IQScore { get; set; }
     }
 
     public class RecentTestResultDto
     {
-        public string TestTypeId { get; set; }
-        public string TestTypeName { get; set; }
+        public required string TestTypeId { get; set; }
+        public required string TestTypeName { get; set; }
         public int Score { get; set; }
         public float Percentile { get; set; }
-        public string Duration { get; set; }
+        public required string Duration { get; set; }
         public DateTime CompletedAt { get; set; }
         public int? IQScore { get; set; }
     }

@@ -305,7 +305,7 @@ namespace IqTest_server.Services
                         BestTime = testResult.Duration,
                         AverageTime = testResult.Duration,
                         IQScore = testResult.TestTypeId == 4 ? 
-                            CalculateEnhancedIQScore(testResult.Score, 0, testResult.Duration, testResult.Accuracy) : 
+                            CalculateEnhancedIQScore(testResult.Score, 0, testResult.Duration ?? "0m 0s", testResult.Accuracy) : 
                             null,
                         Country = user?.Country ?? "United States",
                         LastUpdated = DateTime.UtcNow
@@ -358,7 +358,7 @@ namespace IqTest_server.Services
                             allEntries[i].IQScore = CalculateEnhancedIQScore(
                                 allEntries[i].Score, 
                                 allEntries[i].Percentile,
-                                currentResult.Duration,
+                                currentResult.Duration ?? "0m 0s",
                                 currentResult.Accuracy);
                         }
                         else
@@ -376,7 +376,7 @@ namespace IqTest_server.Services
                     testResult.IQScore = CalculateEnhancedIQScore(
                         testResult.Score,
                         entry.Percentile,
-                        testResult.Duration,
+                        testResult.Duration ?? "0m 0s",
                         testResult.Accuracy);
                     entry.IQScore = testResult.IQScore;
                 }

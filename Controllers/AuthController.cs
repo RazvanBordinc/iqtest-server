@@ -182,7 +182,12 @@ namespace IqTest_server.Controllers
                 // Otherwise, try to parse it from JsonElement
                 else if (requestData is System.Text.Json.JsonElement jsonElement)
                 {
-                    model = new CreateUserDto();
+                    model = new CreateUserDto
+                    {
+                        Username = string.Empty,
+                        Country = string.Empty,
+                        Password = string.Empty
+                    };
                     
                     // Extract Username
                     if (jsonElement.TryGetProperty("Username", out var usernameValue) || 
@@ -218,7 +223,12 @@ namespace IqTest_server.Controllers
                 // Try to extract properties using reflection
                 else
                 {
-                    model = new CreateUserDto();
+                    model = new CreateUserDto
+                    {
+                        Username = string.Empty,
+                        Country = string.Empty,
+                        Password = string.Empty
+                    };
                     var type = requestData.GetType();
                     
                     // Try to get Username

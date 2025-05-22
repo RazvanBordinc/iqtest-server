@@ -44,11 +44,11 @@ namespace IqTest_server.Services
                 // Try to get from Redis cache first
                 if (_redisService != null)
                 {
-                    var cachedResult = await _redisService.GetAsync(cacheKey);
+                    var cachedResult = await _redisService.GetAsync<bool?>(cacheKey);
                     if (cachedResult != null)
                     {
                         _logger.LogDebug("Username check for {Username} served from cache", username);
-                        return bool.Parse(cachedResult);
+                        return cachedResult.Value;
                     }
                 }
                 
@@ -113,7 +113,7 @@ namespace IqTest_server.Services
                 if (await _context.Users.AnyAsync(u => u.Username == model.Username))
                 {
                     _logger.LogWarning("Username {Username} already exists, returning error", model.Username);
-                    return (false, "Username already taken", null);
+                    return (false, "Username already taken", new UserDto { Username = "", Token = "" });
                 }
 
                 // Generate a placeholder email for internal use only
@@ -197,7 +197,7 @@ namespace IqTest_server.Services
                 if (ex.GetType().Name.Contains("DbUpdateException"))
                 {
                     _logger.LogError("Database update exception: {Message}", ex.InnerException?.Message ?? ex.Message);
-                    return (false, $"Database error: {ex.InnerException?.Message ?? ex.Message}", null);
+                    return (false, $"Database error: {ex.InnerException?.Message ?? ex.Message}", new UserDto { Username = "", Token = "" });
                 }
                 
                 // Check for connection string specific errors
@@ -205,7 +205,7 @@ namespace IqTest_server.Services
                 {
                     var keywordMessage = ex.InnerException?.Message ?? ex.Message;
                     _logger.LogError("Connection string format error: {Message}", keywordMessage);
-                    return (false, "Database configuration error. Service temporarily unavailable.", null);
+                    return (false, "Database configuration error. Service temporarily unavailable.", new UserDto { Username = "", Token = "" });
                 }
                 
                 // Check for SQL Server specific errors
@@ -217,29 +217,29 @@ namespace IqTest_server.Services
                     // Check for specific SQL error patterns
                     if (sqlMessage.Contains("Cannot open database") || sqlMessage.Contains("Login failed"))
                     {
-                        return (false, "Database authentication error. Service temporarily unavailable.", null);
+                        return (false, "Database authentication error. Service temporarily unavailable.", new UserDto { Username = "", Token = "" });
                     }
                     if (sqlMessage.Contains("timeout") || sqlMessage.Contains("Timeout"))
                     {
-                        return (false, "Database timeout error. Please try again.", null);
+                        return (false, "Database timeout error. Please try again.", new UserDto { Username = "", Token = "" });
                     }
                     if (sqlMessage.Contains("network") || sqlMessage.Contains("connection"))
                     {
-                        return (false, "Database connection error. Please try again later.", null);
+                        return (false, "Database connection error. Please try again later.", new UserDto { Username = "", Token = "" });
                     }
                     
-                    return (false, $"Database error: {sqlMessage}", null);
+                    return (false, $"Database error: {sqlMessage}", new UserDto { Username = "", Token = "" });
                 }
                 
                 // Check for connection errors
                 if (ex.Message.Contains("connection") || ex.InnerException?.Message?.Contains("connection") == true)
                 {
-                    return (false, "Database connection error. Please try again later.", null);
+                    return (false, "Database connection error. Please try again later.", new UserDto { Username = "", Token = "" });
                 }
                 
                 // Return the actual error message for debugging in non-production
                 var errorMessage = ex.InnerException?.Message ?? ex.Message;
-                return (false, $"Server error: {errorMessage}", null);
+                return (false, $"Server error: {errorMessage}", new UserDto { Username = "", Token = "" });
             }
         }
 
@@ -250,7 +250,7 @@ namespace IqTest_server.Services
                 // Check if username already exists
                 if (await _context.Users.AnyAsync(u => u.Username == model.Username))
                 {
-                    return (false, "Username already taken", null);
+                    return (false, "Username already taken", new UserDto { Username = "", Token = "" });
                 }
 
                 // Generate a placeholder email for internal use only
@@ -292,7 +292,7 @@ namespace IqTest_server.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error during user registration");
-                return (false, "Registration failed due to a server error", null);
+                return (false, "Registration failed due to a server error", new UserDto { Username = "", Token = "" });
             }
         }
 
@@ -304,14 +304,14 @@ namespace IqTest_server.Services
                 var user = await _context.Users.SingleOrDefaultAsync(u => u.Username == model.Username);
                 if (user == null)
                 {
-                    return (false, "Invalid credentials", null, null);
+                    return (false, "Invalid credentials", new UserDto { Username = "", Token = "" }, string.Empty);
                 }
 
                 // Verify password
                 if (!_passwordHasher.VerifyPassword(user.PasswordHash, model.Password))
                 {
                     _logger.LogWarning("Failed login attempt for user: {Username}", model.Username);
-                    return (false, "Invalid credentials", null, null);
+                    return (false, "Invalid credentials", new UserDto { Username = "", Token = "" }, string.Empty);
                 }
 
                 // Update last login time
@@ -339,7 +339,7 @@ namespace IqTest_server.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error during user login");
-                return (false, "Login failed due to a server error", null, null);
+                return (false, "Login failed due to a server error", new UserDto { Username = "", Token = "" }, string.Empty);
             }
         }
 
@@ -348,12 +348,17 @@ namespace IqTest_server.Services
             try
             {
                 var principal = _jwtHelper.GetPrincipalFromExpiredToken(accessToken);
-                var userId = int.Parse(principal.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value);
+                var userIdClaim = principal.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                if (string.IsNullOrEmpty(userIdClaim))
+                {
+                    return (false, "Invalid token", new UserDto { Username = "", Token = "" }, string.Empty);
+                }
+                var userId = int.Parse(userIdClaim);
 
                 var user = await _context.Users.SingleOrDefaultAsync(u => u.Id == userId);
                 if (user == null || user.RefreshToken != refreshToken || user.RefreshTokenExpiryTime <= DateTime.UtcNow)
                 {
-                    return (false, "Invalid refresh token", null, null);
+                    return (false, "Invalid refresh token", new UserDto { Username = "", Token = "" }, string.Empty);
                 }
 
                 // Generate new tokens
@@ -378,7 +383,7 @@ namespace IqTest_server.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error during token refresh");
-                return (false, "Token refresh failed due to a server error", null, null);
+                return (false, "Token refresh failed due to a server error", new UserDto { Username = "", Token = "" }, string.Empty);
             }
         }
 
@@ -392,7 +397,7 @@ namespace IqTest_server.Services
                     return false;
                 }
 
-                user.RefreshToken = null;
+                user.RefreshToken = string.Empty;
                 user.RefreshTokenExpiryTime = null;
                 await _context.SaveChangesAsync();
 

@@ -5,6 +5,6 @@ namespace IqTest_server.DTOs.Auth
     public class RefreshTokenDto
     {
         [Required]
-        public string RefreshToken { get; set; }
+        public required string RefreshToken { get; set; }
     }
 }

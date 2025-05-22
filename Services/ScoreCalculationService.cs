@@ -62,14 +62,14 @@ namespace IqTest_server.Services
 
                     case "fill-in-gap":
                         // For fill-in questions, directly compare the text
-                        var userAnswer = answer.Value.ToString().Trim().ToLower();
-                        isCorrect = userAnswer == question.CorrectAnswer.Trim().ToLower();
+                        var userAnswer = answer.Value?.ToString()?.Trim().ToLower() ?? string.Empty;
+                        isCorrect = userAnswer == (question.CorrectAnswer?.Trim().ToLower() ?? string.Empty);
                         break;
 
                     case "memory-pair":
                         // For memory questions, check if each remembered pair is correct
                         // For simplicity, we'll do a basic comparison
-                        isCorrect = answer.Value.ToString().Trim().ToLower() == question.CorrectAnswer.Trim().ToLower();
+                        isCorrect = (answer.Value?.ToString()?.Trim().ToLower() ?? string.Empty) == (question.CorrectAnswer?.Trim().ToLower() ?? string.Empty);
                         break;
 
                     default:
@@ -132,12 +132,12 @@ namespace IqTest_server.Services
                         break;
 
                     case "fill-in-gap":
-                        var userAnswer = answer.Value.ToString().Trim().ToLower();
-                        isCorrect = userAnswer == question.CorrectAnswer.Trim().ToLower();
+                        var userAnswer = answer.Value?.ToString()?.Trim().ToLower() ?? string.Empty;
+                        isCorrect = userAnswer == (question.CorrectAnswer?.Trim().ToLower() ?? string.Empty);
                         break;
 
                     case "memory-pair":
-                        isCorrect = answer.Value.ToString().Trim().ToLower() == question.CorrectAnswer.Trim().ToLower();
+                        isCorrect = (answer.Value?.ToString()?.Trim().ToLower() ?? string.Empty) == (question.CorrectAnswer?.Trim().ToLower() ?? string.Empty);
                         break;
 
                     default:

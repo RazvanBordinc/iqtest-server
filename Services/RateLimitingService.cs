@@ -68,7 +68,7 @@ namespace IqTest_server.Services
 
                         if (!string.IsNullOrEmpty(data))
                         {
-                            attempts = JsonConvert.DeserializeObject<RateLimitData>(data);
+                            attempts = JsonConvert.DeserializeObject<RateLimitData>(data) ?? new RateLimitData();
                         }
                     }
                     catch (Exception cacheEx)
@@ -79,7 +79,7 @@ namespace IqTest_server.Services
 
                     // Clean up old attempts
                     var cutoffTime = DateTime.UtcNow.Subtract(window);
-                    attempts.Timestamps.RemoveAll(t => t < cutoffTime);
+                    attempts?.Timestamps?.RemoveAll(t => t < cutoffTime);
 
                     // Check if we've exceeded the limit
                     if (attempts.Timestamps.Count >= maxAttempts)
@@ -143,7 +143,7 @@ namespace IqTest_server.Services
 
             try
             {
-                string data;
+                string? data;
                 try 
                 {
                     data = await _cache.GetStringAsync(key);
@@ -167,7 +167,7 @@ namespace IqTest_server.Services
                     };
                 }
 
-                RateLimitData attempts;
+                RateLimitData? attempts;
                 try
                 {
                     attempts = JsonConvert.DeserializeObject<RateLimitData>(data);
@@ -184,7 +184,16 @@ namespace IqTest_server.Services
                 
                 // Clean up old attempts
                 var cutoffTime = DateTime.UtcNow.Subtract(window);
-                attempts.Timestamps.RemoveAll(t => t < cutoffTime);
+                attempts?.Timestamps?.RemoveAll(t => t < cutoffTime);
+                
+                if (attempts == null)
+                {
+                    return new RateLimitStatus
+                    {
+                        AttemptsRemaining = maxAttempts,
+                        ResetsAt = DateTime.UtcNow.Add(window)
+                    };
+                }
 
                 var remainingAttempts = Math.Max(0, maxAttempts - attempts.Timestamps.Count);
                 var oldestAttempt = attempts.Timestamps.Count > 0 ? attempts.Timestamps[0] : DateTime.UtcNow;

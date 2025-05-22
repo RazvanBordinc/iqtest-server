@@ -5,11 +5,11 @@ namespace IqTest_server.DTOs.Leaderboard
     public class UserRankingDto
     {
         public int UserId { get; set; }
-        public string Username { get; set; }
+        public required string Username { get; set; }
         public int GlobalRank { get; set; }
         public float GlobalPercentile { get; set; }
         public int IqScore { get; set; }
-        public Dictionary<string, TestTypeRankingDto> TestResults { get; set; }
+        public required Dictionary<string, TestTypeRankingDto> TestResults { get; set; }
     }
 
     public class TestTypeRankingDto

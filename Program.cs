@@ -89,7 +89,7 @@ if (isRender)
     Console.WriteLine("=== CONNECTION STRING DIAGNOSTICS ===");
     Console.WriteLine($"Environment: {builder.Environment.EnvironmentName}");
     Console.WriteLine($"Is Render: {isRender}");
-    Console.WriteLine($"Connection string from config (masked): {MaskConnectionString(connectionString)}");
+    Console.WriteLine($"Connection string from config (masked): {MaskConnectionString(connectionString ?? string.Empty)}");
     
     // Check if environment variable is set
     var envConnString = Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection");
@@ -281,7 +281,7 @@ var redisOptions = new ConfigurationOptions
     Password = "", // Will be set below if present in connection string
     Ssl = false, // Will be set to true for Upstash Redis
     SyncTimeout = 30000, // Increase sync timeout to 30 seconds
-    ResponseTimeout = 30000, // Add response timeout
+    AsyncTimeout = 30000, // Add async timeout
     KeepAlive = 60, // Add keep-alive option (seconds)
     ReconnectRetryPolicy = new ExponentialRetry(5000, 60000), // Use exponential retry with max 60 seconds
     DefaultDatabase = 0
@@ -454,7 +454,7 @@ builder.Services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(sp =>
         // Register error and reconnect handlers
         multiplexer.ConnectionFailed += (sender, args) => {
             serviceLogger.LogError("Redis connection failed. Endpoint: {Endpoint}, Exception: {Exception}", 
-                args.EndPoint, args.Exception.Message);
+                args.EndPoint, args.Exception?.Message ?? "No exception details");
         };
         
         multiplexer.ConnectionRestored += (sender, args) => {
@@ -493,7 +493,7 @@ builder.Services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(sp =>
             EndPoints = { { "127.0.0.1", 6379 } },
             ConnectTimeout = 100, // Very short timeout since we know it will fail
             ConnectRetry = 0, // No retries
-            ReconnectRetryPolicy = null, // No reconnect policy
+            ReconnectRetryPolicy = new LinearRetry(1000) // Simple retry policy
         };
         
         serviceLogger.LogWarning("Using dummy Redis connection multiplexer to prevent application failure");
@@ -537,7 +537,7 @@ builder.Services.AddAuthentication(options =>
         ValidIssuer = builder.Configuration["Jwt:Issuer"],
         ValidAudience = builder.Configuration["Jwt:Audience"],
         IssuerSigningKey = new SymmetricSecurityKey(
-            Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"])),
+            Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"] ?? throw new InvalidOperationException("JWT Key is missing"))),
         ClockSkew = TimeSpan.Zero, // Remove default 5-minute clock skew
         NameClaimType = System.Security.Claims.ClaimTypes.NameIdentifier, // Ensure correct claim mapping
         RoleClaimType = System.Security.Claims.ClaimTypes.Role

@@ -68,14 +68,21 @@ namespace IqTest_server.Services
                     Type = "multiple-choice",
                     Category = "numerical",
                     Text = "What number comes next in the sequence: 2, 4, 8, 16, ?",
-                    Options = new List<string> { "24", "32", "28", "30", "36", "40" }
+                    Options = new List<string> { "24", "32", "28", "30", "36", "40" },
+                    Pairs = new List<List<string>>(),
+                    MissingIndices = new List<List<int>>(),
+                    CorrectAnswer = "32"
                 },
                 new QuestionDto
                 {
                     Id = 2,
                     Type = "fill-in-gap",
                     Category = "numerical",
-                    Text = "Fill in the missing number: 1, 3, _, 7, 9"
+                    Text = "Fill in the missing number: 1, 3, _, 7, 9",
+                    Options = new List<string>(),
+                    Pairs = new List<List<string>>(),
+                    MissingIndices = new List<List<int>>(),
+                    CorrectAnswer = "5"
                 },
                 new QuestionDto
                 {
@@ -83,14 +90,21 @@ namespace IqTest_server.Services
                     Type = "multiple-choice",
                     Category = "numerical",
                     Text = "If 8 + 2x = 24, what is the value of x?",
-                    Options = new List<string> { "6", "8", "10", "12", "16", "18" }
+                    Options = new List<string> { "6", "8", "10", "12", "16", "18" },
+                    Pairs = new List<List<string>>(),
+                    MissingIndices = new List<List<int>>(),
+                    CorrectAnswer = "8"
                 },
                 new QuestionDto
                 {
                     Id = 4,
                     Type = "fill-in-gap",
                     Category = "numerical",
-                    Text = "Complete the pattern: 3, 6, 12, 24, _"
+                    Text = "Complete the pattern: 3, 6, 12, 24, _",
+                    Options = new List<string>(),
+                    Pairs = new List<List<string>>(),
+                    MissingIndices = new List<List<int>>(),
+                    CorrectAnswer = "48"
                 },
                 new QuestionDto
                 {
@@ -98,7 +112,10 @@ namespace IqTest_server.Services
                     Type = "multiple-choice",
                     Category = "numerical",
                     Text = "What is the prime factorization of 36?",
-                    Options = new List<string> { "2² × 3²", "2² × 3³", "2³ × 3", "2 × 3³", "2³ × 3²", "6²" }
+                    Options = new List<string> { "2² × 3²", "2² × 3³", "2³ × 3", "2 × 3³", "2³ × 3²", "6²" },
+                    Pairs = new List<List<string>>(),
+                    MissingIndices = new List<List<int>>(),
+                    CorrectAnswer = "2² × 3²"
                 },
                 // Generate up to 24 questions (repeat with variations)
                 new QuestionDto
@@ -107,14 +124,21 @@ namespace IqTest_server.Services
                     Type = "multiple-choice",
                     Category = "numerical",
                     Text = "What's the next number in the sequence: 1, 4, 9, 16, ?",
-                    Options = new List<string> { "20", "24", "25", "30", "32", "36" }
+                    Options = new List<string> { "20", "24", "25", "30", "32", "36" },
+                    Pairs = new List<List<string>>(),
+                    MissingIndices = new List<List<int>>(),
+                    CorrectAnswer = "25"
                 },
                 new QuestionDto
                 {
                     Id = 7,
                     Type = "fill-in-gap",
                     Category = "numerical",
-                    Text = "Solve for x: 3x + 7 = 22"
+                    Text = "Solve for x: 3x + 7 = 22",
+                    Options = new List<string>(),
+                    Pairs = new List<List<string>>(),
+                    MissingIndices = new List<List<int>>(),
+                    CorrectAnswer = "5"
                 },
                 // Add more questions to reach the required count...
             };
@@ -130,14 +154,21 @@ namespace IqTest_server.Services
                     Type = "multiple-choice",
                     Category = "verbal",
                     Text = "Which word is closest in meaning to 'ephemeral'?",
-                    Options = new List<string> { "Permanent", "Temporary", "Important", "Colorful", "Spiritual", "Dramatic" }
+                    Options = new List<string> { "Permanent", "Temporary", "Important", "Colorful", "Spiritual", "Dramatic" },
+                    Pairs = new List<List<string>>(),
+                    MissingIndices = new List<List<int>>(),
+                    CorrectAnswer = "Temporary"
                 },
                 new QuestionDto
                 {
                     Id = 2,
                     Type = "fill-in-gap",
                     Category = "verbal",
-                    Text = "Complete the analogy: Book is to Reading as Fork is to _____"
+                    Text = "Complete the analogy: Book is to Reading as Fork is to _____",
+                    Options = new List<string>(),
+                    Pairs = new List<List<string>>(),
+                    MissingIndices = new List<List<int>>(),
+                    CorrectAnswer = "Eating"
                 },
                 new QuestionDto
                 {
@@ -145,14 +176,21 @@ namespace IqTest_server.Services
                     Type = "multiple-choice",
                     Category = "verbal",
                     Text = "Which word is an antonym of 'benevolent'?",
-                    Options = new List<string> { "Malicious", "Charitable", "Friendly", "Generous", "Considerate", "Sympathetic" }
+                    Options = new List<string> { "Malicious", "Charitable", "Friendly", "Generous", "Considerate", "Sympathetic" },
+                    Pairs = new List<List<string>>(),
+                    MissingIndices = new List<List<int>>(),
+                    CorrectAnswer = "Malicious"
                 },
                 new QuestionDto
                 {
                     Id = 4,
                     Type = "fill-in-gap",
                     Category = "verbal",
-                    Text = "Complete the word: Psy_____ogy"
+                    Text = "Complete the word: Psy_____ogy",
+                    Options = new List<string>(),
+                    Pairs = new List<List<string>>(),
+                    MissingIndices = new List<List<int>>(),
+                    CorrectAnswer = "chol"
                 },
                 new QuestionDto
                 {
@@ -168,7 +206,10 @@ namespace IqTest_server.Services
                         "They're going to the store later.",
                         "There going to the store later.",
                         "There going too the store later."
-                    }
+                    },
+                    Pairs = new List<List<string>>(),
+                    MissingIndices = new List<List<int>>(),
+                    CorrectAnswer = "They're going to the store later."
                 },
                 // Generate up to 28 questions...
             };
@@ -185,6 +226,7 @@ namespace IqTest_server.Services
                     Category = "memory",
                     Text = "Recall the missing words from each pair",
                     MemorizationTime = 15,
+                    Options = new List<string>(),
                     Pairs = new List<List<string>>
                     {
                         new List<string> { "boat", "apple" },
@@ -198,7 +240,8 @@ namespace IqTest_server.Services
                         new List<int> { 0 }, // "mountain" is missing
                         new List<int> { 1 }, // "forest" is missing
                         new List<int> { 0 }  // "bicycle" is missing
-                    }
+                    },
+                    CorrectAnswer = "apple,mountain,forest,bicycle"
                 },
                 new QuestionDto
                 {
@@ -207,6 +250,7 @@ namespace IqTest_server.Services
                     Category = "memory",
                     Text = "Recall the missing words from each triplet",
                     MemorizationTime = 20,
+                    Options = new List<string>(),
                     Pairs = new List<List<string>>
                     {
                         new List<string> { "goat", "steel", "house" },
@@ -218,7 +262,8 @@ namespace IqTest_server.Services
                         new List<int> { 1, 2 }, // "steel" and "house" are missing
                         new List<int> { 0, 2 }, // "river" and "cloud" are missing
                         new List<int> { 0, 1 }  // "candle" and "guitar" are missing
-                    }
+                    },
+                    CorrectAnswer = "steel,house,river,cloud,candle,guitar"
                 },
                 // Generate up to 20 questions...
             };

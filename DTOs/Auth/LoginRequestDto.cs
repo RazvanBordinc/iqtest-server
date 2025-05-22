@@ -6,9 +6,9 @@ namespace IqTest_server.DTOs.Auth
     {
         [Required]
         [StringLength(100, MinimumLength = 3)]
-        public string Username { get; set; }
+        public required string Username { get; set; }
 
         [Required]
-        public string Password { get; set; }
+        public required string Password { get; set; }
     }
 }
