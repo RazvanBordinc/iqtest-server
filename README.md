@@ -1,10 +1,14 @@
 # 🧠 IQ Test App - Backend API
 
 <div align="center">
-  <img src="https://via.placeholder.com/800x400?text=IQ+Test+Backend+Architecture" alt="Backend Architecture" width="800"/>
+  <img src="https://img.shields.io/badge/.NET-9.0-512BD4?style=for-the-badge&logo=dotnet" alt=".NET 9.0"/>
+  <img src="https://img.shields.io/badge/Entity_Framework-9.0-512BD4?style=for-the-badge&logo=.net" alt="EF Core"/>
+  <img src="https://img.shields.io/badge/SQL_Server-2022-CC2927?style=for-the-badge&logo=microsoft-sql-server" alt="SQL Server"/>
+  <img src="https://img.shields.io/badge/Redis-Cache-DC382D?style=for-the-badge&logo=redis" alt="Redis"/>
+  <img src="https://img.shields.io/badge/Render-Deployed-46E3B7?style=for-the-badge&logo=render" alt="Render"/>
   
   <p>
-    <strong>A robust ASP.NET Core 9.0 API powering the IQ Test application</strong>
+    <strong>A robust ASP.NET Core 9.0 API powering the IQ Test application with advanced cognitive assessment capabilities</strong>
   </p>
 
   <p>
@@ -19,250 +23,455 @@
 
 ## ✨ Features
 
-- **Comprehensive Test Management**: Generate, serve, and evaluate various cognitive tests
-- **Secure Authentication**: JWT-based auth with refresh tokens and role-based permissions
-- **Performance Optimization**: Redis caching for high-traffic endpoints
-- **Persistent Storage**: Entity Framework Core with SQL Server database
-- **Robust Scoring System**: Advanced algorithms for accurately assessing cognitive abilities
-- **Leaderboard System**: Global and test-specific rankings with percentiles
-- **User Profiles**: Secure storage and management of user data and test history
-- **Scalable Architecture**: Designed for horizontal scaling in containerized environments
+### 🧪 Test Management
+- **Multiple Test Types**: Numerical reasoning, verbal intelligence, memory & recall, and comprehensive IQ tests
+- **Adaptive Question Generation**: Dynamic question pools with varied difficulty levels
+- **Smart Availability System**: 24-hour cooldown periods with precise timing
+- **Advanced Scoring**: Sophisticated algorithms for accurate cognitive assessment
 
-<div align="center">
-  <img src="https://via.placeholder.com/700x350?text=System+Architecture+Diagram" alt="System Architecture" width="700"/>
-</div>
+### 🔐 Security & Authentication
+- **JWT-based Authentication**: Secure token system with 15-minute access tokens
+- **Refresh Token Rotation**: Enhanced security with automatic token renewal
+- **Password Security**: Modern hashing algorithms with salt protection
+- **Rate Limiting**: Request throttling to prevent abuse
+- **CORS Protection**: Secure cross-origin request handling
+
+### 🚀 Performance & Scalability
+- **Redis Caching**: High-performance caching for frequently accessed data
+- **Async Operations**: Non-blocking I/O for improved throughput
+- **Database Optimization**: Efficient queries with Entity Framework Core
+- **Health Monitoring**: Built-in health checks and server wake-up endpoints
+
+### 📊 Analytics & Leaderboards
+- **Global Rankings**: Comprehensive leaderboard system with percentiles
+- **Test-Specific Rankings**: Category-based performance tracking
+- **User Statistics**: Detailed performance analytics and history
+- **Country-based Analytics**: Regional performance comparisons
+
+### 🛡️ Middleware & Security
+- **Error Handling**: Global exception handling with user-friendly responses
+- **Security Headers**: Comprehensive HTTP security headers
+- **CSRF Protection**: Anti-forgery token validation
+- **Input Validation**: Model validation to prevent injection attacks
 
 ## 🛠 Tech Stack
 
-- **Framework**: [ASP.NET Core 9.0](https://docs.microsoft.com/en-us/aspnet/core/?view=aspnetcore-9.0)
-- **Data Access**: [Entity Framework Core 9.0](https://docs.microsoft.com/en-us/ef/core/)
-- **Database**: [SQL Server 2022](https://www.microsoft.com/en-us/sql-server)
-- **Caching**: [Redis](https://redis.io/) via StackExchange.Redis
-- **Authentication**: JWT with [Microsoft.AspNetCore.Authentication.JwtBearer](https://www.nuget.org/packages/Microsoft.AspNetCore.Authentication.JwtBearer)
-- **API Documentation**: [Swagger/OpenAPI](https://swagger.io/specification/)
-- **Deployment**: [Render](https://render.com/) with [Upstash](https://upstash.com/) for Redis
+### Core Framework
+- **[ASP.NET Core 9.0](https://docs.microsoft.com/en-us/aspnet/core/?view=aspnetcore-9.0)** - High-performance web framework
+- **[Entity Framework Core 9.0](https://docs.microsoft.com/en-us/ef/core/)** - Object-relational mapping
+- **[SQL Server 2022](https://www.microsoft.com/en-us/sql-server)** - Primary database
+- **[Redis](https://redis.io/)** - In-memory caching via StackExchange.Redis
 
-### Key Backend Features
+### Authentication & Security
+- **JWT Bearer Authentication** - Secure token-based auth
+- **BCrypt** - Password hashing with salt
+- **HTTPS Enforcement** - SSL/TLS encryption
+- **CORS Configuration** - Cross-origin security
 
-- **Dependency Injection**: Clean service architecture with built-in DI container
-- **Repository Pattern**: Separation of data access logic from business logic
-- **Middleware Pipeline**: Custom middleware for error handling, rate limiting, and security
-- **Data Protection**: Secure handling of sensitive user information
-- **Async/Await Pattern**: Non-blocking I/O operations for improved performance
-- **Cross-Origin Resource Sharing (CORS)**: Configured for secure cross-domain requests
-- **Resilient Redis Integration**: Robust caching and rate limiting with fallback mechanisms
+### Development & Deployment
+- **[Swagger/OpenAPI](https://swagger.io/specification/)** - API documentation
+- **[Render](https://render.com/)** - Cloud hosting platform
+- **[Upstash](https://upstash.com/)** - Managed Redis service
+- **Docker** - Containerization support
 
 ## 🏗 Architecture
 
-The backend follows a layered architecture pattern:
+The backend follows a **Clean Architecture** pattern with clear separation of concerns:
 
-1. **Presentation Layer**: Controllers handling HTTP requests and responses
-2. **Business Logic Layer**: Services implementing core application functionality
-3. **Data Access Layer**: Repository classes and Entity Framework DbContext
-4. **Domain Layer**: Entity models representing business objects
+```
+┌─────────────────────┐
+│   Presentation      │  ← Controllers, Filters, Middleware
+├─────────────────────┤
+│   Application       │  ← Services, DTOs, Business Logic
+├─────────────────────┤
+│   Domain           │  ← Models, Entities, Core Logic
+├─────────────────────┤
+│   Infrastructure   │  ← Data Access, External Services
+└─────────────────────┘
+```
 
-<div align="center">
-  <img src="https://via.placeholder.com/600x350?text=Layered+Architecture+Diagram" alt="Layered Architecture" width="600"/>
-</div>
+### Layer Responsibilities
+
+1. **Controllers**: Handle HTTP requests/responses and route to services
+2. **Services**: Implement business logic and coordinate between layers
+3. **Models**: Define domain entities and business rules
+4. **Data**: Entity Framework context and repository patterns
+5. **Utilities**: Helper classes and shared functionality
 
 ## 🚀 Getting Started
 
 ### Prerequisites
 
-- [.NET 9 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/9.0)
-- [SQL Server](https://www.microsoft.com/en-us/sql-server/sql-server-downloads) or [SQL Server Express](https://www.microsoft.com/en-us/sql-server/sql-server-downloads#Express)
-- [Redis](https://redis.io/download) (optional for development)
+```bash
+# Required
+.NET 9 SDK
+SQL Server (Express/LocalDB for development)
 
-### Installation
+# Optional
+Redis (for caching - falls back gracefully if unavailable)
+Docker (for containerized development)
+```
+
+### Quick Start
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/iqtest.git
-
-# Navigate to the project directory
+git clone <repository-url>
 cd iqtest/IqTest-server
 
-# Restore dependencies
+# Restore NuGet packages
 dotnet restore
 
-# Update database with migrations
+# Update database with latest migrations
 dotnet ef database update
 
 # Run the application
 dotnet run
+
+# Alternative: Run with hot reload
+dotnet watch run
 ```
 
-The API will be available at [http://localhost:5164](http://localhost:5164).
+The API will be available at:
+- **HTTP**: http://localhost:5164
+- **HTTPS**: https://localhost:7164
+- **Swagger UI**: http://localhost:5164/swagger (Development only)
+
+### Environment Setup
+
+Create `appsettings.Development.json` for local development:
+
+```json
+{
+  "ConnectionStrings": {
+    "DefaultConnection": "Server=(localdb)\\mssqllocaldb;Database=IqTestDev;Trusted_Connection=True;MultipleActiveResultSets=true"
+  },
+  "Jwt": {
+    "Key": "your-development-secret-key-minimum-32-characters",
+    "Issuer": "iqtest-dev",
+    "Audience": "iqtest-dev-client",
+    "DurationInMinutes": 15
+  },
+  "Redis": {
+    "ConnectionString": "localhost:6379"
+  },
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  }
+}
+```
 
 ## 📁 Project Structure
 
 ```
-IqTest-server/                            # Backend root directory
-├── Attributes/                           # Custom attributes
-│   └── StrongPasswordAttribute.cs        # Password validation attribute
-├── Controllers/                          # API endpoints
-│   ├── AuthController.cs                 # Authentication and user management
-│   ├── LeaderboardController.cs          # Rankings and percentiles
-│   ├── ProfileController.cs              # User profile operations
-│   ├── QuestionController.cs             # Question management
-│   ├── ResultsController.cs              # Test results processing
-│   └── TestController.cs                 # Test management
-├── Data/                                 # Data access layer
-│   ├── ApplicationDbContext.cs           # EF Core database context
-│   └── EntityConfigurations/             # Entity type configurations
-├── DTOs/                                 # Data transfer objects
-│   ├── Auth/                             # Authentication DTOs
-│   ├── Leaderboard/                      # Leaderboard DTOs
-│   ├── Profile/                          # User profile DTOs
-│   └── Test/                             # Test-related DTOs
-├── Filters/                              # Action filters
-│   └── ModelValidationActionFilter.cs    # Input validation
-├── Middleware/                           # Custom middleware
-│   ├── ErrorHandlingMiddleware.cs        # Global error handling
-│   ├── RateLimitingMiddleware.cs         # Request rate limiting
-│   └── SecurityHeadersMiddleware.cs      # Security headers
-├── Migrations/                           # Database migrations
-├── Models/                               # Domain models
-│   ├── Answer.cs                         # Test answer
-│   ├── Question.cs                       # Test question
-│   ├── TestResult.cs                     # Test result
-│   ├── TestType.cs                       # Test category
-│   └── User.cs                           # User account
-├── Services/                             # Business logic
-│   ├── AuthService.cs                    # Authentication logic
-│   ├── LeaderboardService.cs             # Ranking calculations
-│   ├── QuestionService.cs                # Question management
-│   ├── ScoreCalculationService.cs        # Scoring algorithms
-│   └── TestService.cs                    # Test orchestration
-├── Utilities/                            # Helper classes
-│   ├── JwtHelper.cs                      # JWT token handling
-│   └── PasswordHasher.cs                 # Password security
-├── Program.cs                            # Application entry point
-└── appsettings.json                      # Configuration settings
+IqTest-server/
+├── 📁 Attributes/                    # Custom validation attributes
+│   └── StrongPasswordAttribute.cs
+├── 📁 Controllers/                   # API endpoints
+│   ├── AuthController.cs             # Authentication & user management
+│   ├── BaseController.cs             # Common controller functionality
+│   ├── HealthController.cs           # Health checks & server wake-up
+│   ├── LeaderboardController.cs      # Rankings & statistics
+│   ├── ProfileController.cs          # User profile management
+│   ├── QuestionController.cs         # Question management
+│   ├── ResultsController.cs          # Test results & scoring
+│   ├── TestController.cs             # Test orchestration
+│   └── UserDataController.cs         # User data operations
+├── 📁 Converters/                    # JSON serialization
+│   └── AnswerValueJsonConverter.cs
+├── 📁 Data/                          # Data access layer
+│   ├── ApplicationDbContext.cs       # EF Core database context
+│   └── 📁 EntityConfigurations/      # Entity type configurations
+├── 📁 DTOs/                          # Data transfer objects
+│   ├── 📁 Auth/                      # Authentication DTOs
+│   ├── 📁 Leaderboard/               # Leaderboard DTOs
+│   ├── 📁 Profile/                   # Profile DTOs
+│   └── 📁 Test/                      # Test-related DTOs
+├── 📁 Filters/                       # Action filters
+│   └── ModelValidationActionFilter.cs
+├── 📁 Middleware/                    # Custom middleware pipeline
+│   ├── CsrfProtectionMiddleware.cs   # CSRF protection
+│   ├── DynamicCorsMiddleware.cs      # CORS handling
+│   ├── ErrorHandlingMiddleware.cs    # Global error handling
+│   ├── RateLimitingMiddleware.cs     # Request rate limiting
+│   ├── RequestLoggingMiddleware.cs   # Request/response logging
+│   └── SecurityHeadersMiddleware.cs  # Security headers
+├── 📁 Migrations/                    # EF Core database migrations
+├── 📁 Models/                        # Domain entities
+│   ├── Answer.cs                     # Test answer entity
+│   ├── HardcodedQuestion.cs          # Predefined questions
+│   ├── LeaderboardEntry.cs           # Leaderboard entries
+│   ├── Question.cs                   # Test questions
+│   ├── TestResult.cs                 # Test results
+│   ├── TestType.cs                   # Test categories
+│   └── User.cs                       # User accounts
+├── 📁 Services/                      # Business logic layer
+│   ├── AnswerValidatorService.cs     # Answer validation
+│   ├── AuthService.cs                # Authentication logic
+│   ├── GithubService.cs              # External integrations
+│   ├── HardcodedTestData.cs          # Test data management
+│   ├── LeaderboardService.cs         # Ranking calculations
+│   ├── LoggingService.cs             # Application logging
+│   ├── ProfileService.cs             # Profile management
+│   ├── QuestionGeneratorService.cs   # Dynamic question generation
+│   ├── QuestionService.cs            # Question management
+│   ├── QuestionsRefreshService.cs    # Question pool refresh
+│   ├── RateLimitingService.cs        # Rate limit enforcement
+│   ├── RedisService.cs               # Caching service
+│   ├── ScoreCalculationService.cs    # Scoring algorithms
+│   └── TestService.cs                # Test orchestration
+├── 📁 Utilities/                     # Helper utilities
+│   ├── JwtHelper.cs                  # JWT token management
+│   └── PasswordHasher.cs             # Password security
+├── Program.cs                        # Application entry point
+├── appsettings.json                  # Production configuration
+└── appsettings.Development.json      # Development configuration
 ```
 
 ## 🔒 Security Features
 
-- **Password Security**: Secure hashing with salt using modern algorithms
-- **JWT Authentication**: Short-lived access tokens with refresh token rotation
-- **HTTPS Enforcement**: Redirect all HTTP requests to HTTPS
-- **CSRF Protection**: Anti-forgery tokens for sensitive operations
-- **Rate Limiting**: Prevent abuse through request throttling
-- **Input Validation**: Model validation to prevent injection attacks
-- **Security Headers**: Comprehensive set of HTTP security headers
+### Authentication & Authorization
+- **JWT Tokens**: Short-lived access tokens (15 minutes) with secure refresh mechanism
+- **Token Validation**: Comprehensive token validation with issuer/audience checks
+- **Password Security**: BCrypt hashing with salt for maximum security
+- **Role-based Access**: Extensible role system for future admin features
+
+### Request Security
+- **Rate Limiting**: Configurable request throttling per IP/user
+- **CORS Protection**: Strict cross-origin request policies
+- **CSRF Protection**: Anti-forgery tokens for state-changing operations
+- **Input Validation**: Comprehensive model validation and sanitization
+
+### Headers & Protocols
+- **Security Headers**: X-Frame-Options, X-Content-Type-Options, X-XSS-Protection
+- **HTTPS Enforcement**: Automatic HTTP to HTTPS redirection
+- **HSTS**: HTTP Strict Transport Security for enhanced protection
 
 ## 🔄 API Endpoints
 
-### Authentication
+### 🔐 Authentication
+```http
+POST   /api/auth/register          # Register new user
+POST   /api/auth/login             # User authentication
+POST   /api/auth/refresh           # Refresh access token
+POST   /api/auth/logout            # Invalidate tokens
+POST   /api/auth/check-username    # Check username availability
+POST   /api/auth/create-user       # Alternative registration endpoint
+```
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/auth/register` | Register a new user |
-| POST | `/api/auth/login` | Authenticate and receive tokens |
-| POST | `/api/auth/refresh` | Refresh the access token |
-| POST | `/api/auth/logout` | Invalidate current tokens |
-| POST | `/api/auth/check-username` | Check username availability |
+### 🧪 Test Management
+```http
+GET    /api/test/types                    # Available test types
+GET    /api/test/questions/{testTypeId}   # Get test questions
+POST   /api/test/submit                   # Submit test answers
+GET    /api/test/results/{testId}         # Retrieve test results
+GET    /api/test/availability/{testId}    # Check test availability
+GET    /api/test/stats                    # Test statistics
+```
 
-### Tests
+### 👤 User Profile
+```http
+GET    /api/profile                 # Current user profile
+PUT    /api/profile/country         # Update user country
+PUT    /api/profile/age            # Update user age
+GET    /api/profile/test-history   # User's test history
+DELETE /api/profile/data           # Delete user data (GDPR)
+```
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/test/types` | Get available test types |
-| GET | `/api/test/questions/{testTypeId}` | Get questions for a test |
-| POST | `/api/test/submit` | Submit test answers |
-| GET | `/api/test/results/{testId}` | Get test results |
-| GET | `/api/test/availability/{testTypeId}` | Check test availability |
+### 🏆 Leaderboards
+```http
+GET    /api/leaderboard/global              # Global rankings
+GET    /api/leaderboard/test-type/{id}      # Test-specific rankings
+GET    /api/leaderboard/user-ranking        # Current user's ranking
+GET    /api/leaderboard/country/{country}   # Country-specific rankings
+```
 
-### User Profile
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/profile` | Get current user profile |
-| PUT | `/api/profile/country` | Update user country |
-| PUT | `/api/profile/age` | Update user age |
-| GET | `/api/profile/test-history` | Get test history |
-
-### Leaderboard
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/leaderboard/global` | Get global leaderboard |
-| GET | `/api/leaderboard/test-type/{testTypeId}` | Get test-specific leaderboard |
-| GET | `/api/leaderboard/user-ranking` | Get current user ranking |
+### 📊 System Health
+```http
+GET    /api/health              # Health check endpoint
+GET    /api/health/wake         # Server wake-up endpoint
+GET    /api/health/detailed     # Detailed health information
+```
 
 ## ⚙️ Configuration
 
-Key application settings in `appsettings.json`:
+### Application Settings
 
+**Production Configuration** (`appsettings.json`):
 ```json
 {
-    "ConnectionStrings": {
-        "DefaultConnection": "Server=localhost;Database=IqTest;Trusted_Connection=True;MultipleActiveResultSets=true;TrustServerCertificate=true"
-    },
-    "Jwt": {
-        "Key": "your-secret-key-with-minimum-16-characters",
-        "Issuer": "iqtest-api",
-        "Audience": "iqtest-client",
-        "DurationInMinutes": 15
-    },
-    "Redis": {
-        "ConnectionString": "localhost:6379"
-    },
-    "AllowedCors": {
-        "Origins": ["http://localhost:3000"]
-    }
+  "ConnectionStrings": {
+    "DefaultConnection": "Server=localhost;Database=IqTest;Integrated Security=true;TrustServerCertificate=true"
+  },
+  "Jwt": {
+    "Key": "your-production-secret-key-minimum-32-characters",
+    "Issuer": "iqtest-api",
+    "Audience": "iqtest-client",
+    "DurationInMinutes": 15,
+    "RefreshTokenDurationInDays": 7
+  },
+  "Redis": {
+    "ConnectionString": "localhost:6379",
+    "DefaultDatabase": 0,
+    "KeyPrefix": "iqtest:"
+  },
+  "RateLimit": {
+    "EnableLimiting": true,
+    "GeneralRequestsPerMinute": 100,
+    "AuthRequestsPerMinute": 10
+  },
+  "Cors": {
+    "AllowedOrigins": ["https://iqtest-app.vercel.app"],
+    "AllowCredentials": true
+  }
 }
+```
+
+### Environment Variables
+
+For production deployment, use environment variables:
+```bash
+ConnectionStrings__DefaultConnection=your-db-connection-string
+Jwt__Key=your-secure-production-key
+Redis__ConnectionString=your-redis-connection-string
+ASPNETCORE_ENVIRONMENT=Production
 ```
 
 ## 🚢 Deployment
 
-The API is configured for deployment on [Render](https://render.com/) with [Upstash](https://upstash.com/) for Redis:
+### Render Deployment
 
-### Database Setup
+The application is configured for deployment on **Render** with the following setup:
 
-1. Create a SQL Server database (Azure SQL, Managed SQL, etc.)
-2. Update the connection string in environment variables
-
-### Redis Cache
-
-1. Set up a Redis instance on Upstash
-2. Configure the Redis connection string in environment variables
-
-### Render Configuration
-
+#### Build Settings
 ```yaml
+# render.yaml
 services:
-    - type: web
-      name: iqtest-api
-      env: docker
-      dockerfilePath: ./Dockerfile
-      envVars:
-          - key: ConnectionStrings__DefaultConnection
-            value: your-production-connection-string
-          - key: Jwt__Key
-            value: your-secure-production-key
-            isSecret: true
-          - key: Redis__ConnectionString
-            value: your-upstash-redis-url
-            isSecret: true
+  - type: web
+    name: iqtest-server
+    env: docker
+    dockerfilePath: ./IqTest-server/Dockerfile
+    dockerContext: ./IqTest-server
+    plan: free
+    region: oregon
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: ConnectionStrings__DefaultConnection
+        sync: false
+      - key: Jwt__Key
+        sync: false
+      - key: Redis__ConnectionString
+        sync: false
+```
+
+#### Database Setup
+1. **SQL Server**: Use Azure SQL Database or similar managed service
+2. **Connection String**: Set via environment variable for security
+3. **Migrations**: Auto-applied on startup in production
+
+#### Redis Cache
+1. **Upstash Redis**: Recommended managed Redis service
+2. **Configuration**: Set Redis connection string in environment variables
+3. **Fallback**: Application gracefully handles Redis unavailability
+
+### Docker Configuration
+
+**Dockerfile**:
+```dockerfile
+FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS base
+WORKDIR /app
+EXPOSE 8080
+
+FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+WORKDIR /src
+COPY ["IqTest-server.csproj", "."]
+RUN dotnet restore "IqTest-server.csproj"
+COPY . .
+RUN dotnet build "IqTest-server.csproj" -c Release -o /app/build
+
+FROM build AS publish
+RUN dotnet publish "IqTest-server.csproj" -c Release -o /app/publish
+
+FROM base AS final
+WORKDIR /app
+COPY --from=publish /app/publish .
+ENTRYPOINT ["dotnet", "IqTest-server.dll"]
 ```
 
 ## 📊 Monitoring & Logging
 
-- **Serilog**: Structured logging to files and optional external providers
-- **Application Insights**: Performance monitoring integration (optional)
-- **Health Checks**: Endpoints for monitoring system health
+### Logging Configuration
+- **Serilog**: Structured logging with JSON output
+- **Log Levels**: Configurable logging levels per namespace
+- **Request Logging**: Automatic HTTP request/response logging
+- **Error Tracking**: Comprehensive exception logging with context
 
-## 📃 API Documentation
+### Health Checks
+- **Database Connectivity**: Entity Framework health check
+- **Redis Availability**: Cache service health monitoring
+- **Custom Checks**: Business logic health validation
 
-Swagger documentation is automatically generated and available at `/swagger` when running in Development environment.
+### Performance Monitoring
+- **Response Times**: Built-in response time tracking
+- **Cache Hit Rates**: Redis performance metrics
+- **Database Performance**: EF Core query performance tracking
 
-## 📝 License
+## 🧪 Testing
 
-This project is [MIT](LICENSE) licensed.
+### Unit Tests
+```bash
+# Run unit tests
+dotnet test
+
+# Run with coverage
+dotnet test --collect:"XPlat Code Coverage"
+```
+
+### Integration Tests
+- **Database Tests**: In-memory database testing
+- **API Tests**: Full endpoint integration testing
+- **Authentication Tests**: JWT token flow validation
+
+### Load Testing
+- **Stress Tests**: High-concurrency scenarios
+- **Performance Benchmarks**: Response time measurements
+- **Cache Performance**: Redis optimization validation
+
+## 📝 Development Guidelines
+
+### Code Standards
+- **C# Conventions**: Follow Microsoft C# coding conventions
+- **Async/Await**: Use async patterns for I/O operations
+- **Dependency Injection**: Leverage built-in DI container
+- **Exception Handling**: Use global exception middleware
+
+### Database Guidelines
+- **Migrations**: Always create migrations for schema changes
+- **Indexing**: Proper indexing for query performance
+- **Relationships**: Use proper entity relationships
+- **Validation**: Model-level and database-level validation
+
+### API Guidelines
+- **RESTful Design**: Follow REST principles
+- **HTTP Status Codes**: Use appropriate status codes
+- **Error Responses**: Consistent error response format
+- **Versioning**: API versioning strategy for future changes
+
+## 📄 License
+
+This project is [MIT](../LICENSE) licensed.
 
 ---
 
 <div align="center">
-  <p>Made with ❤️ for cognitive assessment</p>
+  <p>Built with ❤️ using ASP.NET Core 9.0</p>
+  <p>
+    <a href="https://iqtest-server.onrender.com/swagger">Live API Documentation</a> •
+    <a href="../iqtest/README.md">Frontend Documentation</a> •
+    <a href="../.claude/README.md">Project Overview</a>
+  </p>
 </div>
