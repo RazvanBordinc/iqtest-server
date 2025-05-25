@@ -742,6 +742,16 @@ app.UseMiddleware<ErrorHandlingMiddleware>();
 
 app.MapControllers();
 
+// Root endpoint to avoid 404 errors on health checks
+app.MapGet("/", () => Results.Ok(new 
+{
+    Name = "IQ Test API",
+    Version = "1.0.0",
+    Status = "Running",
+    Environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production",
+    Timestamp = DateTime.UtcNow
+}));
+
 // Special endpoint for checking logging that doesn't require the full controller setup
 app.Map("/api/logging-status", (ILogger<Program> logger, LoggingService loggingService) => 
 {

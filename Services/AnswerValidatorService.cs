@@ -200,7 +200,7 @@ namespace IqTest_server.Services
                 index = intValue;
             }
             
-            if (index >= 0 && index < question.Options.Count)
+            if (question.Options != null && index >= 0 && index < question.Options.Count)
             {
                 return question.Options[index] == correctAnswer;
             }
