@@ -42,13 +42,21 @@ namespace IqTest_server.Services
                 {
                     _logger.LogWarning("Failed to acquire lock for rate limiting check");
                     
+                    // For Render free tier, be more lenient with lock failures
+                    if (Environment.GetEnvironmentVariable("RENDER_SERVICE_ID") != null)
+                    {
+                        _logger.LogInformation($"Render environment detected. Allowing request despite lock failure for {endpoint}");
+                        return true;
+                    }
+                    
                     // If we can't acquire lock, allow the request if it's for critical endpoints
                     if (endpoint.Contains("/api/health") || 
                         endpoint.Contains("/api/auth/disconnect") || 
                         endpoint.Contains("/api/auth/logout") ||
                         endpoint.Contains("/api/auth/check-username") ||
                         endpoint.Contains("/api/auth/create-user") ||
-                        endpoint.Contains("/api/auth/register"))
+                        endpoint.Contains("/api/auth/register") ||
+                        endpoint.Contains("/api/test/availability"))  // Add test availability as critical
                     {
                         _logger.LogInformation($"Bypassing rate limit for critical endpoint {endpoint} due to lock acquisition failure");
                         return true;
@@ -222,6 +230,13 @@ namespace IqTest_server.Services
             var endTime = DateTime.UtcNow.Add(timeout);
             int attempts = 0;
             
+            // For Render free tier, reduce timeout to avoid long waits during cold starts
+            if (Environment.GetEnvironmentVariable("RENDER_SERVICE_ID") != null)
+            {
+                timeout = TimeSpan.FromSeconds(2); // Much shorter timeout for Render
+                endTime = DateTime.UtcNow.Add(timeout);
+            }
+            
             while (DateTime.UtcNow < endTime)
             {
                 attempts++;
@@ -238,29 +253,43 @@ namespace IqTest_server.Services
                         return true;
                     }
                 }
+                catch (StackExchange.Redis.RedisConnectionException redisEx)
+                {
+                    // Specific handling for StackExchange.Redis connection exceptions
+                    _logger.LogWarning("Redis connection unavailable for rate limiting. Allowing operation to continue without lock. Error: {Message}", redisEx.Message);
+                    return true; // Allow operation when Redis is unavailable
+                }
+                catch (StackExchange.Redis.RedisTimeoutException timeoutEx)
+                {
+                    // Specific handling for Redis timeout exceptions
+                    _logger.LogWarning("Redis timeout for rate limiting. Allowing operation to continue without lock. Error: {Message}", timeoutEx.Message);
+                    return true; // Allow operation on timeout
+                }
                 catch (Exception ex)
                 {
-                    // Special handling for Redis connection failures
+                    // For any other exception, check the message
                     if (ex.Message.Contains("Connection") || 
                         ex.Message.Contains("Timeout") || 
-                        ex.Message.Contains("Redis"))
+                        ex.Message.Contains("Redis") ||
+                        ex.Message.Contains("backlog"))
                     {
-                        _logger.LogError(ex, "Redis connection error acquiring distributed lock. Allowing operation to continue without lock.");
+                        _logger.LogWarning("Redis unavailable for rate limiting. Allowing operation to continue without lock. Error: {Message}", ex.Message);
                         return true; // Consider the lock acquired if Redis is unavailable
                     }
                     
-                    _logger.LogError(ex, $"Error acquiring distributed lock (attempt {attempts})");
+                    _logger.LogError(ex, $"Unexpected error acquiring distributed lock (attempt {attempts})");
                     
                     // If we've tried multiple times and keep getting errors, assume Redis is down
-                    if (attempts >= 3)
+                    if (attempts >= 2) // Reduced from 3 to 2 for faster failover
                     {
                         _logger.LogWarning("Multiple failures acquiring lock. Assuming Redis is unavailable and allowing operation.");
                         return true;
                     }
                 }
 
-                // Exponential backoff with jitter to reduce contention
-                var delay = Math.Min(50 * Math.Pow(2, attempts - 1), 1000);
+                // Shorter exponential backoff for Render environment
+                var baseDelay = Environment.GetEnvironmentVariable("RENDER_SERVICE_ID") != null ? 25 : 50;
+                var delay = Math.Min(baseDelay * Math.Pow(2, attempts - 1), 500); // Max 500ms instead of 1000ms
                 var jitter = new Random().Next((int)(delay * 0.8), (int)(delay * 1.2));
                 await Task.Delay((int)jitter);
             }

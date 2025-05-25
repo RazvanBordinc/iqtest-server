@@ -4,6 +4,9 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using Microsoft.Data.SqlClient;
+using Microsoft.EntityFrameworkCore;
+using StackExchange.Redis;
 
 namespace IqTest_server.Middleware
 {
@@ -44,6 +47,7 @@ namespace IqTest_server.Middleware
 
             var code = HttpStatusCode.InternalServerError; // 500 if unexpected
             var result = string.Empty;
+            var isRenderEnvironment = Environment.GetEnvironmentVariable("RENDER_SERVICE_ID") != null;
 
             switch (exception)
             {
@@ -55,6 +59,42 @@ namespace IqTest_server.Middleware
                     break;
                 case KeyNotFoundException _:
                     code = HttpStatusCode.NotFound;
+                    break;
+                case TaskCanceledException _:
+                case OperationCanceledException _:
+                    // Request was cancelled, likely due to timeout
+                    code = HttpStatusCode.RequestTimeout;
+                    _logger.LogWarning("Request cancelled/timed out for {Path}", requestPath);
+                    break;
+                case SqlException sqlEx:
+                    // Handle SQL connection errors specially on Render
+                    if (isRenderEnvironment && (sqlEx.Message.Contains("network-related") || 
+                        sqlEx.Message.Contains("server was not found") ||
+                        sqlEx.Number == -2)) // Timeout
+                    {
+                        code = HttpStatusCode.ServiceUnavailable;
+                        _logger.LogWarning("SQL connection error on Render (cold start): {Message}", sqlEx.Message);
+                    }
+                    break;
+                case DbUpdateException dbEx when dbEx.InnerException is SqlException:
+                    // Handle EF Core SQL exceptions
+                    var innerSqlEx = dbEx.InnerException as SqlException;
+                    if (isRenderEnvironment && innerSqlEx != null && 
+                        (innerSqlEx.Message.Contains("network-related") || innerSqlEx.Number == -2))
+                    {
+                        code = HttpStatusCode.ServiceUnavailable;
+                        _logger.LogWarning("Database connection error on Render: {Message}", innerSqlEx.Message);
+                    }
+                    break;
+                case RedisConnectionException redisEx:
+                    // Log Redis errors but don't fail the request
+                    _logger.LogWarning("Redis connection error (non-critical): {Message}", redisEx.Message);
+                    // Don't change the status code, let it continue as 500
+                    break;
+                case RedisTimeoutException redisTimeout:
+                    // Log Redis timeout but don't fail the request
+                    _logger.LogWarning("Redis timeout (non-critical): {Message}", redisTimeout.Message);
+                    // Don't change the status code, let it continue as 500
                     break;
             }
 
@@ -95,9 +135,13 @@ namespace IqTest_server.Middleware
                             HttpStatusCode.BadRequest => "Invalid request",
                             HttpStatusCode.Unauthorized => "Authentication required",
                             HttpStatusCode.NotFound => "Resource not found",
+                            HttpStatusCode.RequestTimeout => "Request timed out. The server may be waking up, please try again.",
+                            HttpStatusCode.ServiceUnavailable => "Service temporarily unavailable. Please wait a moment and try again.",
                             _ => "An error occurred"
                         },
-                        statusCode = (int)code
+                        statusCode = (int)code,
+                        isServerSleep = code == HttpStatusCode.ServiceUnavailable && isRenderEnvironment,
+                        retryAfter = code == HttpStatusCode.ServiceUnavailable ? 30 : (int?)null
                     });
                 }
                 else
@@ -106,7 +150,9 @@ namespace IqTest_server.Middleware
                     result = JsonSerializer.Serialize(new { 
                         message = exception.Message,
                         statusCode = (int)code,
-                        type = exception.GetType().Name
+                        type = exception.GetType().Name,
+                        isServerSleep = code == HttpStatusCode.ServiceUnavailable && isRenderEnvironment,
+                        retryAfter = code == HttpStatusCode.ServiceUnavailable ? 30 : (int?)null
                     });
                 }
             }

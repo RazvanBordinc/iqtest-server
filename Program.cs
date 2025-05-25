@@ -276,15 +276,17 @@ builder.Services.AddStackExchangeRedisCache(options =>
 var redisOptions = new ConfigurationOptions
 {
     AbortOnConnectFail = false, // Don't fail if Redis is temporarily unavailable
-    ConnectRetry = 10, // Increase retry attempts
-    ConnectTimeout = 30000, // Increase connection timeout to 30 seconds
+    ConnectRetry = Environment.GetEnvironmentVariable("RENDER_SERVICE_ID") != null ? 3 : 10, // Fewer retries on Render
+    ConnectTimeout = Environment.GetEnvironmentVariable("RENDER_SERVICE_ID") != null ? 5000 : 30000, // Shorter timeout on Render
     Password = "", // Will be set below if present in connection string
     Ssl = false, // Will be set to true for Upstash Redis
-    SyncTimeout = 30000, // Increase sync timeout to 30 seconds
-    AsyncTimeout = 30000, // Add async timeout
+    SyncTimeout = Environment.GetEnvironmentVariable("RENDER_SERVICE_ID") != null ? 5000 : 30000, // Shorter timeout on Render
+    AsyncTimeout = Environment.GetEnvironmentVariable("RENDER_SERVICE_ID") != null ? 5000 : 30000, // Shorter timeout on Render
     KeepAlive = 60, // Add keep-alive option (seconds)
-    ReconnectRetryPolicy = new ExponentialRetry(5000, 60000), // Use exponential retry with max 60 seconds
-    DefaultDatabase = 0
+    ReconnectRetryPolicy = new LinearRetry(2000), // Simple linear retry with 2 second delay
+    DefaultDatabase = 0,
+    AllowAdmin = false, // Security: disable admin commands
+    CommandMap = CommandMap.Default // Use default command map
 };
 
 // Create a logger for Redis configuration
