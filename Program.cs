@@ -731,9 +731,20 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-// Early exit for health endpoints to bypass all middleware
+// Early exit for OPTIONS requests and health endpoints
 app.Use(async (context, next) =>
 {
+    // Handle OPTIONS requests immediately for better performance
+    if (context.Request.Method == "OPTIONS")
+    {
+        context.Response.Headers["Access-Control-Allow-Origin"] = "*";
+        context.Response.Headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS";
+        context.Response.Headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization";
+        context.Response.Headers["Access-Control-Max-Age"] = "86400"; // 24 hours
+        context.Response.StatusCode = 204;
+        return;
+    }
+    
     var path = context.Request.Path.Value?.ToLower();
     if (path == "/api/health" || path == "/api/health/ping" || path == "/api/health/wake")
     {

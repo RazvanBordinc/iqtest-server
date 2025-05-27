@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Microsoft.EntityFrameworkCore;
 using IqTest_server.Data;
+using IqTest_server.Services;
 using System;
 using System.Threading.Tasks;
 
@@ -62,7 +63,10 @@ namespace IqTest_server.Controllers
         [AllowAnonymous]
         [Microsoft.AspNetCore.Cors.EnableCors("AllowAll")]
         [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]
-        public IActionResult Wake()
+        public async Task<IActionResult> Wake(
+            [FromServices] ApplicationDbContext context,
+            [FromServices] AuthService authService,
+            [FromServices] TestService testService)
         {
             var uptime = DateTime.UtcNow - _startTime;
             var isColdStart = uptime.TotalSeconds < 30;
@@ -71,7 +75,39 @@ namespace IqTest_server.Controllers
             Response.Headers["Access-Control-Allow-Origin"] = "*";
             Response.Headers["Cache-Control"] = "no-cache, no-store, must-revalidate";
             
-            // Skip database connectivity test for faster response
+            // Warm up critical services in parallel for faster subsequent requests
+            if (isColdStart)
+            {
+                var warmupTasks = new[]
+                {
+                    // Warm up EF Core model
+                    Task.Run(async () => 
+                    {
+                        try 
+                        { 
+                            await context.Database.ExecuteSqlRawAsync("SELECT 1");
+                        } 
+                        catch { /* Ignore errors during warmup */ }
+                    }),
+                    
+                    // Warm up test types
+                    Task.Run(async () => 
+                    {
+                        try 
+                        { 
+                            await testService.GetAllTestTypesAsync();
+                        } 
+                        catch { /* Ignore errors during warmup */ }
+                    })
+                };
+                
+                // Wait max 2 seconds for warmup tasks
+                await Task.WhenAny(
+                    Task.WhenAll(warmupTasks),
+                    Task.Delay(2000)
+                );
+            }
+            
             // This endpoint is specifically for waking up the server
             return Ok(new { 
                 Status = "Awake",
