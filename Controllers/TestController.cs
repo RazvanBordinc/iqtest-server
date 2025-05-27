@@ -143,6 +143,11 @@ namespace IqTest_server.Controllers
                 var stats = await _testService.GetTestStatsAsync(testTypeId);
                 return Ok(stats);
             }
+            catch (KeyNotFoundException ex)
+            {
+                _logger.LogWarning(ex, "Test type not found: {TestTypeId}", testTypeId);
+                return NotFound(new { message = ex.Message });
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error retrieving test stats for test type {TestTypeId}", testTypeId);

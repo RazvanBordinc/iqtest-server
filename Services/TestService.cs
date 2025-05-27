@@ -683,7 +683,7 @@ namespace IqTest_server.Services
         }
 
         // Get test statistics
-        public async Task<TestStatsDto> GetTestStatsAsync(string testTypeId)
+        public async Task<object> GetTestStatsAsync(string testTypeId)
         {
             try
             {
@@ -709,7 +709,7 @@ namespace IqTest_server.Services
                     .Where(tr => tr.TestTypeId == dbTestTypeId)
                     .MaxAsync(tr => (int?)tr.Score) ?? 0;
 
-                return new TestStatsDto
+                return new
                 {
                     TestTypeId = testTypeId,
                     TestTitle = testType.Title,
@@ -718,7 +718,7 @@ namespace IqTest_server.Services
                     HighestScore = highestScore,
                     Difficulty = testType.Stats.Difficulty,
                     TimeLimit = testType.Stats.TimeLimit,
-                    QuestionCount = testType.QuestionCount
+                    QuestionCount = testType.Stats.QuestionsCount
                 };
             }
             catch (Exception ex)
