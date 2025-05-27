@@ -18,7 +18,7 @@ namespace IqTest_server.Services
         private readonly QuestionService _questionService;
         private readonly AnswerValidatorService _answerValidator;
         private readonly RedisService _redisService;
-        private readonly CacheService _cacheService;
+        private readonly ICacheService _cacheService;
 
         public TestService(
             ApplicationDbContext context,
@@ -26,7 +26,7 @@ namespace IqTest_server.Services
             QuestionService questionService,
             AnswerValidatorService answerValidator,
             RedisService redisService,
-            CacheService cacheService)
+            ICacheService cacheService)
         {
             _context = context;
             _logger = logger;
