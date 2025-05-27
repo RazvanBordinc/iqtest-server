@@ -1,6 +1,7 @@
 using System;
 using System.IdentityModel.Tokens.Jwt;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using IqTest_server.Data;
@@ -416,6 +417,28 @@ app.UseMiddleware<SecurityHeadersMiddleware>();
 
 // CORS - MUST be before authentication and authorization
 app.UseCors();
+
+// Handle OPTIONS requests explicitly for CORS preflight - AFTER CORS middleware
+app.Use(async (context, next) =>
+{
+    // Log CORS-related information
+    var origin = context.Request.Headers["Origin"].FirstOrDefault();
+    var method = context.Request.Method;
+    var path = context.Request.Path;
+    
+    if (method == "OPTIONS")
+    {
+        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+        logger.LogInformation("Handling OPTIONS preflight request from {Origin} for {Path}", origin, path);
+        
+        // CORS headers should already be set by UseCors middleware
+        context.Response.StatusCode = 200;
+        await context.Response.CompleteAsync();
+        return;
+    }
+    
+    await next();
+});
 
 // Conditional middleware based on environment
 if (builder.Environment.IsProduction())
