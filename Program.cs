@@ -23,6 +23,17 @@ var builder = WebApplication.CreateBuilder(args);
 // For Render deployment detection (optional)
 var isRender = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("RENDER_SERVICE_ID"));
 
+// Debug environment variables on Render
+if (isRender)
+{
+    Console.WriteLine("=== Render Environment Variables ===");
+    Console.WriteLine($"RENDER_SERVICE_ID: {Environment.GetEnvironmentVariable("RENDER_SERVICE_ID")}");
+    Console.WriteLine($"REDIS_URL exists: {!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("REDIS_URL"))}");
+    Console.WriteLine($"REDIS_CONNECTION_STRING exists: {!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("REDIS_CONNECTION_STRING"))}");
+    Console.WriteLine($"UPSTASH_REDIS_URL exists: {!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("UPSTASH_REDIS_URL"))}");
+    Console.WriteLine("===================================");
+}
+
 // Add environment-specific configuration 
 if (isRender)
 {
@@ -236,16 +247,26 @@ builder.Services.AddCors(options =>
 });
 
 // Redis configuration - simplified for Upstash
+// Check multiple environment variable names that might be used on Render
 var redisConnectionString = Environment.GetEnvironmentVariable("REDIS_URL") ?? 
+                           Environment.GetEnvironmentVariable("REDIS_CONNECTION_STRING") ??
+                           Environment.GetEnvironmentVariable("UPSTASH_REDIS_URL") ??
                            builder.Configuration["Redis:ConnectionString"] ?? 
                            "localhost:6379";
+
+ 
+
+// Log the Redis configuration (truncated for security)
+var displayString = redisConnectionString.Contains("@") 
+    ? redisConnectionString.Substring(0, redisConnectionString.IndexOf("@") + 1) + "..."
+    : redisConnectionString;
+Console.WriteLine($"Redis Configuration: {displayString}");
 
 // Ensure we use rediss:// for Upstash in production
 if (builder.Environment.IsProduction() && redisConnectionString.StartsWith("redis://"))
 {
     redisConnectionString = redisConnectionString.Replace("redis://", "rediss://");
-    builder.Services.BuildServiceProvider().GetService<ILogger<Program>>()?.LogInformation(
-        "Converted Redis URL to use SSL (rediss://) for production");
+    Console.WriteLine("Converted Redis URL to use SSL (rediss://) for production");
 }
 
 // Redis for caching and rate limiting
@@ -255,12 +276,16 @@ builder.Services.AddStackExchangeRedisCache(options =>
     options.InstanceName = "IqTest";
 });
 
-// Redis multiplexer - properly configured for Upstash
-builder.Services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(sp =>
+// Create Redis connection immediately during startup
+IConnectionMultiplexer redisMultiplexer = null!;
+try
 {
-    var logger = sp.GetRequiredService<ILogger<Program>>();
-    
     ConfigurationOptions options;
+    
+    Console.WriteLine($"=== Redis Connection Attempt ===");
+    Console.WriteLine($"Environment: {builder.Environment.EnvironmentName}");
+    Console.WriteLine($"Is Render: {isRender}");
+    Console.WriteLine($"Redis URL: {displayString}");
     
     // Parse Upstash URL if it's in URI format
     if (redisConnectionString.StartsWith("redis://") || redisConnectionString.StartsWith("rediss://"))
@@ -275,64 +300,84 @@ builder.Services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(sp =>
             Ssl = uri.Scheme == "rediss",
             SslProtocols = System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13,
             AbortOnConnectFail = false,
-            ConnectTimeout = 2000,      // 2 seconds - reasonable for Upstash
-            SyncTimeout = 2000,         // 2 seconds for sync operations  
-            AsyncTimeout = 2000,        // 2 seconds for async operations
-            ConnectRetry = 2,           // Retry twice
-            KeepAlive = 60,            // Keep alive every 60 seconds
-            DefaultDatabase = 0
+            ConnectTimeout = 5000,      // 5 seconds for initial connection
+            SyncTimeout = 2000,         
+            AsyncTimeout = 2000,       
+            ConnectRetry = 3,          
+            KeepAlive = 60,
+            ReconnectRetryPolicy = new LinearRetry(5000) // Retry every 5 seconds
         };
         
-        // Log the connection details (without password)
-        logger.LogInformation("Connecting to Redis at {Host}:{Port} with SSL={Ssl}", 
-            uri.Host, uri.Port, uri.Scheme == "rediss");
+        Console.WriteLine($"Connecting to Upstash Redis at {uri.Host}:{uri.Port} with SSL={uri.Scheme == "rediss"}");
+        Console.WriteLine($"Connection timeout: {options.ConnectTimeout}ms");
     }
     else
     {
         // Standard connection string
         options = ConfigurationOptions.Parse(redisConnectionString);
         options.AbortOnConnectFail = false;
-        options.ConnectTimeout = 2000;
+        options.ConnectTimeout = 5000;
         options.SyncTimeout = 2000;
         options.AsyncTimeout = 2000;
+        options.ConnectRetry = 3;
+        options.ReconnectRetryPolicy = new LinearRetry(5000);
+        
+        Console.WriteLine($"Using standard Redis connection string");
     }
     
-    logger.LogInformation("Connecting to Redis with configuration: {Config}", options.ToString());
-    
-    // Add connection event handlers for diagnostics
-    var multiplexer = ConnectionMultiplexer.Connect(options);
-    
-    multiplexer.ConnectionFailed += (sender, args) =>
-    {
-        logger.LogError("Redis connection failed: {FailureType} - {Exception}", 
-            args.FailureType, args.Exception?.Message);
-    };
-    
-    multiplexer.ConnectionRestored += (sender, args) =>
-    {
-        logger.LogInformation("Redis connection restored: {EndPoint}", args.EndPoint);
-    };
-    
-    multiplexer.ErrorMessage += (sender, args) =>
-    {
-        logger.LogError("Redis error: {Message}", args.Message);
-    };
+    Console.WriteLine("Initiating Redis connection...");
+    redisMultiplexer = ConnectionMultiplexer.Connect(options);
+    Console.WriteLine("Redis ConnectionMultiplexer created successfully");
     
     // Test the connection
-    try
-    {
-        var db = multiplexer.GetDatabase();
-        var pong = db.Ping();
-        logger.LogInformation("Redis ping successful: {Latency}ms", pong.TotalMilliseconds);
-    }
-    catch (Exception pingEx)
-    {
-        logger.LogError(pingEx, "Redis ping failed");
-    }
+    var db = redisMultiplexer.GetDatabase();
+    Console.WriteLine("Got Redis database instance, testing ping...");
+    var pong = db.Ping();
+    Console.WriteLine($"Redis ping successful: {pong.TotalMilliseconds}ms");
+    Console.WriteLine($"=== Redis Connection Success ===");
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"Redis connection failed: {ex.Message}");
+    Console.WriteLine($"Full exception: {ex}");
     
-    logger.LogInformation("Redis multiplexer created successfully");
-    return multiplexer;
-});
+    // Don't set to null - this will cause NullReferenceException
+    // Instead, let's try a simpler connection for localhost fallback
+    if (!isRender)
+    {
+        try
+        {
+            Console.WriteLine("Attempting fallback Redis connection to localhost...");
+            var fallbackOptions = ConfigurationOptions.Parse("localhost:6379");
+            fallbackOptions.AbortOnConnectFail = false;
+            fallbackOptions.ConnectTimeout = 1000;
+            redisMultiplexer = ConnectionMultiplexer.Connect(fallbackOptions);
+            Console.WriteLine("Fallback Redis connection established");
+        }
+        catch (Exception fallbackEx)
+        {
+            Console.WriteLine($"Fallback Redis connection also failed: {fallbackEx.Message}");
+            // Create a null multiplexer that RedisService can handle
+            redisMultiplexer = null!;
+        }
+    }
+    else
+    {
+        // On Render, we really need Redis to work
+        redisMultiplexer = null!;
+    }
+}
+
+// Register the Redis multiplexer as singleton - handle null case
+if (redisMultiplexer != null)
+{
+    builder.Services.AddSingleton<IConnectionMultiplexer>(sp => redisMultiplexer);
+}
+else
+{
+    // Register a null instance - RedisService will handle this gracefully
+    builder.Services.AddSingleton<IConnectionMultiplexer>(sp => null!);
+}
 
 // Add memory caching
 builder.Services.AddMemoryCache();

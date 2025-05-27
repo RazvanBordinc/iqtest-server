@@ -36,15 +36,25 @@ namespace IqTest_server.Services
             _loggingService = loggingService;
             _configuration = configuration;
             
+            if (redis == null)
+            {
+                _logger.LogError("Redis connection is null - Redis operations will fail");
+                _isRedisAvailable = false;
+                return;
+            }
+            
             try
             {
                 _database = redis.GetDatabase();
                 // Test connection
                 var ping = _database.Ping();
                 _logger.LogInformation("Redis connection established successfully. Ping: {Ping}ms", ping.TotalMilliseconds);
+                _isRedisAvailable = true;
                 
                 // Determine if we're using Upstash Redis
-                _redisConnectionString = _configuration["Redis:ConnectionString"] ?? "localhost:6379";
+                _redisConnectionString = Environment.GetEnvironmentVariable("REDIS_URL") ?? 
+                                       _configuration["Redis:ConnectionString"] ?? 
+                                       "localhost:6379";
                 _isUpstash = _redisConnectionString.Contains("upstash") || _redisConnectionString.Contains("rediss://");
                 
                 // Log Redis connection details
