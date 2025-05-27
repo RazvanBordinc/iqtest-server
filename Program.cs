@@ -147,22 +147,44 @@ if (connectionStringFixed)
 if (!connectionString.Contains("Connect Timeout", StringComparison.OrdinalIgnoreCase) && 
     !connectionString.Contains("Connection Timeout", StringComparison.OrdinalIgnoreCase))
 {
-    connectionString += ";Connect Timeout=60";
-    Console.WriteLine("Added Connect Timeout=60 to connection string");
+    connectionString += ";Connect Timeout=30"; // Reduced for faster failures
+    Console.WriteLine("Added Connect Timeout=30 to connection string");
     connectionStringFixed = true;
 }
 
 if (!connectionString.Contains("ConnectRetryCount", StringComparison.OrdinalIgnoreCase))
 {
-    connectionString += ";ConnectRetryCount=3";
-    Console.WriteLine("Added ConnectRetryCount=3 to connection string");
+    connectionString += ";ConnectRetryCount=2"; // Reduced retries
+    Console.WriteLine("Added ConnectRetryCount=2 to connection string");
     connectionStringFixed = true;
 }
 
 if (!connectionString.Contains("ConnectRetryInterval", StringComparison.OrdinalIgnoreCase))
 {
-    connectionString += ";ConnectRetryInterval=10";
-    Console.WriteLine("Added ConnectRetryInterval=10 to connection string");
+    connectionString += ";ConnectRetryInterval=5"; // Reduced interval
+    Console.WriteLine("Added ConnectRetryInterval=5 to connection string");
+    connectionStringFixed = true;
+}
+
+// Add connection pooling optimizations
+if (!connectionString.Contains("Min Pool Size", StringComparison.OrdinalIgnoreCase))
+{
+    connectionString += ";Min Pool Size=5"; // Minimum connections in pool
+    Console.WriteLine("Added Min Pool Size=5 to connection string");
+    connectionStringFixed = true;
+}
+
+if (!connectionString.Contains("Max Pool Size", StringComparison.OrdinalIgnoreCase))
+{
+    connectionString += ";Max Pool Size=100"; // Maximum connections in pool
+    Console.WriteLine("Added Max Pool Size=100 to connection string");
+    connectionStringFixed = true;
+}
+
+if (!connectionString.Contains("Pooling", StringComparison.OrdinalIgnoreCase))
+{
+    connectionString += ";Pooling=true"; // Ensure pooling is enabled
+    Console.WriteLine("Added Pooling=true to connection string");
     connectionStringFixed = true;
 }
 
@@ -210,12 +232,12 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
         sqlServerOptions => 
         {
             sqlServerOptions.EnableRetryOnFailure(
-                maxRetryCount: 5,
-                maxRetryDelay: TimeSpan.FromSeconds(30),
+                maxRetryCount: 3,
+                maxRetryDelay: TimeSpan.FromSeconds(10),
                 errorNumbersToAdd: null);
             
             // Add command timeout for long-running queries
-            sqlServerOptions.CommandTimeout(30);
+            sqlServerOptions.CommandTimeout(20);
             
             // For Render deployment, add migration assembly
             if (Environment.GetEnvironmentVariable("RENDER_SERVICE_ID") != null)
@@ -263,6 +285,9 @@ builder.Services.AddCors(options =>
 // Get Redis connection string first
 var redisConnectionString = builder.Configuration["Redis:ConnectionString"] ?? "localhost:6379";
 
+// Skip Redis in production for faster startup if not configured
+var skipRedis = builder.Environment.IsProduction() && redisConnectionString == "localhost:6379";
+
 // Redis for caching and rate limiting
 builder.Services.AddStackExchangeRedisCache(options =>
 {
@@ -271,7 +296,8 @@ builder.Services.AddStackExchangeRedisCache(options =>
 });
 
 // Add Redis connection multiplexer with resilient configuration
-
+if (!skipRedis)
+{
 // Create Redis configuration options programmatically instead of parsing
 var redisOptions = new ConfigurationOptions
 {
@@ -502,6 +528,36 @@ builder.Services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(sp =>
         return ConnectionMultiplexer.Connect(configOptions);
     }
 });
+} // End if (!skipRedis)
+else
+{
+    // Register a null Redis multiplexer for production when Redis is not configured
+    builder.Services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(sp =>
+    {
+        var serviceLogger = sp.GetRequiredService<ILogger<Program>>();
+        serviceLogger.LogWarning("Redis is disabled in production for faster startup");
+        
+        // Create a dummy connection that won't actually connect
+        var configOptions = new ConfigurationOptions
+        {
+            AbortOnConnectFail = false,
+            EndPoints = { { "127.0.0.1", 6379 } },
+            ConnectTimeout = 1, // Minimal timeout
+            ConnectRetry = 0,
+            ReconnectRetryPolicy = new LinearRetry(1000)
+        };
+        
+        try
+        {
+            return ConnectionMultiplexer.Connect(configOptions);
+        }
+        catch
+        {
+            // Return null if connection fails
+            return null;
+        }
+    });
+}
 
 // Add memory caching
 builder.Services.AddMemoryCache();
@@ -522,8 +578,11 @@ builder.Services.AddScoped<RateLimitingService>();
 builder.Services.AddScoped<ScoreCalculationService>();
 builder.Services.AddScoped<ProfileService>();
 
-// Background services
-builder.Services.AddHostedService<QuestionsRefreshService>();
+// Background services - disable for production to reduce startup time
+if (builder.Environment.IsDevelopment())
+{
+    builder.Services.AddHostedService<QuestionsRefreshService>();
+}
 
 
 // JWT Authentication with custom token extraction
@@ -633,31 +692,35 @@ static string MaskConnectionString(string connectionString)
 
 // Database migration is now handled separately - not on startup
 // This improves startup performance and prevents migration conflicts in scaled environments
-using (var scope = app.Services.CreateScope())
+// Skip database connection check on startup for faster cold starts
+if (app.Environment.IsDevelopment())
 {
-    var services = scope.ServiceProvider;
-    var logger = services.GetRequiredService<ILogger<Program>>();
-    
-    try
+    using (var scope = app.Services.CreateScope())
     {
-        var context = services.GetRequiredService<ApplicationDbContext>();
+        var services = scope.ServiceProvider;
+        var logger = services.GetRequiredService<ILogger<Program>>();
         
-        // Only check if database can connect, don't run migrations
-        logger.LogInformation("Checking database connection...");
-        var canConnect = await context.Database.CanConnectAsync();
-        if (canConnect)
+        try
         {
-            logger.LogInformation("Database connection successful");
+            var context = services.GetRequiredService<ApplicationDbContext>();
+            
+            // Only check if database can connect, don't run migrations
+            logger.LogInformation("Checking database connection...");
+            var canConnect = await context.Database.CanConnectAsync();
+            if (canConnect)
+            {
+                logger.LogInformation("Database connection successful");
+            }
+            else
+            {
+                logger.LogWarning("Cannot connect to database - application may have limited functionality");
+            }
         }
-        else
+        catch (Exception ex)
         {
-            logger.LogWarning("Cannot connect to database - application may have limited functionality");
+            logger.LogError(ex, "Error checking database connection");
+            // Continue running even if database is not available
         }
-    }
-    catch (Exception ex)
-    {
-        logger.LogError(ex, "Error checking database connection");
-        // Continue running even if database is not available
     }
 }
 
@@ -668,27 +731,51 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+// Early exit for health endpoints to bypass all middleware
+app.Use(async (context, next) =>
+{
+    var path = context.Request.Path.Value?.ToLower();
+    if (path == "/api/health" || path == "/api/health/ping" || path == "/api/health/wake")
+    {
+        // Skip all middleware for health endpoints
+        context.Response.Headers["Access-Control-Allow-Origin"] = "*";
+        context.Response.Headers["Cache-Control"] = "no-cache, no-store, must-revalidate";
+        
+        // Let the controller handle the response
+        await next();
+        return;
+    }
+    
+    await next();
+});
+
 app.UseHttpsRedirection();
 
 // Response caching middleware (must come early in pipeline)
 app.UseResponseCaching();
 
-// Security headers
-app.UseMiddleware<SecurityHeadersMiddleware>();
-
-// CRITICAL: CORS must come before authentication
-// Use our configured CORS policies - AllowedOrigins for auth endpoints,
-// AllowAll as a default fallback with no credentials
+// CRITICAL: CORS must come before other middleware
 app.UseCors();
 
-// CSRF protection
-app.UseMiddleware<CsrfProtectionMiddleware>();
-
-// Rate limiting middleware
-app.UseMiddleware<RateLimitingMiddleware>();
-
-// Request logging middleware (must be before auth to capture all requests)
-app.UseMiddleware<RequestLoggingMiddleware>();
+// Only apply heavy middleware for non-health endpoints
+app.UseWhen(context => 
+{
+    var path = context.Request.Path.Value?.ToLower();
+    return !(path == "/api/health" || path == "/api/health/ping" || path == "/api/health/wake" || path == "/");
+}, appBuilder =>
+{
+    // Security headers
+    appBuilder.UseMiddleware<SecurityHeadersMiddleware>();
+    
+    // CSRF protection
+    appBuilder.UseMiddleware<CsrfProtectionMiddleware>();
+    
+    // Rate limiting middleware
+    appBuilder.UseMiddleware<RateLimitingMiddleware>();
+    
+    // Request logging middleware
+    appBuilder.UseMiddleware<RequestLoggingMiddleware>();
+});
 
 app.UseAuthentication();
 app.UseAuthorization();

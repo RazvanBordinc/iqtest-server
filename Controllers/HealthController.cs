@@ -22,23 +22,21 @@ namespace IqTest_server.Controllers
         [HttpGet]
         [AllowAnonymous]
         [Microsoft.AspNetCore.Cors.EnableCors("AllowAll")]
+        [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]
         public IActionResult Get()
         {
             var uptime = DateTime.UtcNow - _startTime;
-            var isColdStart = uptime.TotalMinutes < 2; // Consider it a cold start if uptime < 2 minutes
+            var isColdStart = uptime.TotalSeconds < 30; // Consider it a cold start if uptime < 30 seconds
             
             // Add special CORS headers directly for health endpoint
             Response.Headers["Access-Control-Allow-Origin"] = "*";
+            Response.Headers["Cache-Control"] = "no-cache, no-store, must-revalidate";
             
             return Ok(new
             {
                 Status = "Healthy",
                 Timestamp = DateTime.UtcNow,
-                Uptime = uptime.ToString(),
-                UptimeMinutes = Math.Round(uptime.TotalMinutes, 1),
-                IsColdStart = isColdStart,
-                IsRender = Environment.GetEnvironmentVariable("RENDER_SERVICE_ID") != null,
-                Environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production"
+                IsColdStart = isColdStart
             });
         }
         
@@ -47,62 +45,39 @@ namespace IqTest_server.Controllers
         [HttpGet("ping")]
         [AllowAnonymous]
         [Microsoft.AspNetCore.Cors.EnableCors("AllowAll")]
+        [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]
         public IActionResult Ping()
         {
-            var uptime = DateTime.UtcNow - _startTime;
-            
             // Add special CORS headers directly for health endpoint
             Response.Headers["Access-Control-Allow-Origin"] = "*";
+            Response.Headers["Cache-Control"] = "no-cache, no-store, must-revalidate";
             
             return Ok(new { 
                 Status = "OK",
-                Timestamp = DateTime.UtcNow,
-                IsColdStart = uptime.TotalMinutes < 2,
-                ResponseTime = DateTime.UtcNow.ToString("HH:mm:ss.fff")
+                Timestamp = DateTime.UtcNow
             });
         }
         
         [HttpGet("wake")]
         [AllowAnonymous]
         [Microsoft.AspNetCore.Cors.EnableCors("AllowAll")]
-        public async Task<IActionResult> Wake([FromServices] ApplicationDbContext context)
+        [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]
+        public IActionResult Wake()
         {
             var uptime = DateTime.UtcNow - _startTime;
-            var wakeTime = DateTime.UtcNow;
+            var isColdStart = uptime.TotalSeconds < 30;
             
             // Add special CORS headers directly for health endpoint
             Response.Headers["Access-Control-Allow-Origin"] = "*";
+            Response.Headers["Cache-Control"] = "no-cache, no-store, must-revalidate";
             
-            // Test database connectivity
-            bool dbConnected = false;
-            string dbStatus = "Unknown";
-            
-            try
-            {
-                // Quick database connectivity test with timeout
-                using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(5));
-                await context.Database.ExecuteSqlRawAsync("SELECT 1", cts.Token);
-                dbConnected = true;
-                dbStatus = "Connected";
-            }
-            catch (Exception ex)
-            {
-                dbConnected = false;
-                dbStatus = ex.Message.Contains("network-related") || ex.Message.Contains("server was not found") 
-                    ? "Network Error" : "Error";
-                    
-                _logger.LogWarning("Database connectivity test failed during wake: {Error}", ex.Message);
-            }
-            
+            // Skip database connectivity test for faster response
             // This endpoint is specifically for waking up the server
             return Ok(new { 
                 Status = "Awake",
-                WakeTime = wakeTime,
-                IsColdStart = uptime.TotalMinutes < 2,
-                DatabaseConnected = dbConnected,
-                DatabaseStatus = dbStatus,
-                UptimeMinutes = Math.Round(uptime.TotalMinutes, 1),
-                Message = uptime.TotalMinutes < 2 ? "Server was sleeping, now awake!" : "Server was already active"
+                WakeTime = DateTime.UtcNow,
+                IsColdStart = isColdStart,
+                Message = isColdStart ? "Server was sleeping, now awake!" : "Server was already active"
             });
         }
     }
