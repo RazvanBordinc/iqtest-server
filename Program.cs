@@ -236,7 +236,17 @@ builder.Services.AddCors(options =>
 });
 
 // Redis configuration - simplified for Upstash
-var redisConnectionString = builder.Configuration["Redis:ConnectionString"] ?? "localhost:6379";
+var redisConnectionString = Environment.GetEnvironmentVariable("REDIS_URL") ?? 
+                           builder.Configuration["Redis:ConnectionString"] ?? 
+                           "localhost:6379";
+
+// Ensure we use rediss:// for Upstash in production
+if (builder.Environment.IsProduction() && redisConnectionString.StartsWith("redis://"))
+{
+    redisConnectionString = redisConnectionString.Replace("redis://", "rediss://");
+    builder.Services.BuildServiceProvider().GetService<ILogger<Program>>()?.LogInformation(
+        "Converted Redis URL to use SSL (rediss://) for production");
+}
 
 // Redis for caching and rate limiting
 builder.Services.AddStackExchangeRedisCache(options =>
@@ -245,58 +255,83 @@ builder.Services.AddStackExchangeRedisCache(options =>
     options.InstanceName = "IqTest";
 });
 
-// Redis multiplexer - optimized for Upstash
+// Redis multiplexer - properly configured for Upstash
 builder.Services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(sp =>
 {
     var logger = sp.GetRequiredService<ILogger<Program>>();
     
+    ConfigurationOptions options;
+    
+    // Parse Upstash URL if it's in URI format
+    if (redisConnectionString.StartsWith("redis://") || redisConnectionString.StartsWith("rediss://"))
+    {
+        var uri = new Uri(redisConnectionString);
+        var userInfo = uri.UserInfo.Split(':');
+        
+        options = new ConfigurationOptions
+        {
+            EndPoints = { { uri.Host, uri.Port } },
+            Password = userInfo.Length > 1 ? userInfo[1] : "",
+            Ssl = uri.Scheme == "rediss",
+            SslProtocols = System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13,
+            AbortOnConnectFail = false,
+            ConnectTimeout = 2000,      // 2 seconds - reasonable for Upstash
+            SyncTimeout = 2000,         // 2 seconds for sync operations  
+            AsyncTimeout = 2000,        // 2 seconds for async operations
+            ConnectRetry = 2,           // Retry twice
+            KeepAlive = 60,            // Keep alive every 60 seconds
+            DefaultDatabase = 0
+        };
+        
+        // Log the connection details (without password)
+        logger.LogInformation("Connecting to Redis at {Host}:{Port} with SSL={Ssl}", 
+            uri.Host, uri.Port, uri.Scheme == "rediss");
+    }
+    else
+    {
+        // Standard connection string
+        options = ConfigurationOptions.Parse(redisConnectionString);
+        options.AbortOnConnectFail = false;
+        options.ConnectTimeout = 2000;
+        options.SyncTimeout = 2000;
+        options.AsyncTimeout = 2000;
+    }
+    
+    logger.LogInformation("Connecting to Redis with configuration: {Config}", options.ToString());
+    
+    // Add connection event handlers for diagnostics
+    var multiplexer = ConnectionMultiplexer.Connect(options);
+    
+    multiplexer.ConnectionFailed += (sender, args) =>
+    {
+        logger.LogError("Redis connection failed: {FailureType} - {Exception}", 
+            args.FailureType, args.Exception?.Message);
+    };
+    
+    multiplexer.ConnectionRestored += (sender, args) =>
+    {
+        logger.LogInformation("Redis connection restored: {EndPoint}", args.EndPoint);
+    };
+    
+    multiplexer.ErrorMessage += (sender, args) =>
+    {
+        logger.LogError("Redis error: {Message}", args.Message);
+    };
+    
+    // Test the connection
     try
     {
-        ConfigurationOptions options;
-        
-        // Parse Upstash URL if it's in URI format
-        if (redisConnectionString.StartsWith("redis://") || redisConnectionString.StartsWith("rediss://"))
-        {
-            var uri = new Uri(redisConnectionString);
-            var userInfo = uri.UserInfo.Split(':');
-            
-            options = new ConfigurationOptions
-            {
-                EndPoints = { { uri.Host, uri.Port } },
-                Password = userInfo.Length > 1 ? userInfo[1] : "",
-                Ssl = uri.Scheme == "rediss",
-                AbortOnConnectFail = false,
-                ConnectTimeout = 3000, // Reduced from 5000
-                SyncTimeout = 3000,    // Reduced from 5000
-                AsyncTimeout = 3000,   // Reduced from 5000
-                ConnectRetry = 2       // Reduced from 3
-            };
-        }
-        else
-        {
-            // Standard connection string
-            options = ConfigurationOptions.Parse(redisConnectionString);
-            options.AbortOnConnectFail = false;
-            options.ConnectTimeout = 3000;
-        }
-        
-        var multiplexer = ConnectionMultiplexer.Connect(options);
-        logger.LogInformation("Connected to Redis");
-        return multiplexer;
+        var db = multiplexer.GetDatabase();
+        var pong = db.Ping();
+        logger.LogInformation("Redis ping successful: {Latency}ms", pong.TotalMilliseconds);
     }
-    catch (Exception ex)
+    catch (Exception pingEx)
     {
-        logger.LogWarning(ex, "Redis unavailable, using fallback");
-        
-        // Simple fallback that won't delay startup
-        return ConnectionMultiplexer.Connect(new ConfigurationOptions 
-        { 
-            EndPoints = { { "localhost", 6379 } },
-            AbortOnConnectFail = false,
-            ConnectTimeout = 1,
-            ConnectRetry = 0
-        });
+        logger.LogError(pingEx, "Redis ping failed");
     }
+    
+    logger.LogInformation("Redis multiplexer created successfully");
+    return multiplexer;
 });
 
 // Add memory caching

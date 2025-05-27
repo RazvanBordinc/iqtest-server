@@ -233,7 +233,7 @@ namespace IqTest_server.Services
             // For Render free tier, reduce timeout to avoid long waits during cold starts
             if (Environment.GetEnvironmentVariable("RENDER_SERVICE_ID") != null)
             {
-                timeout = TimeSpan.FromSeconds(2); // Much shorter timeout for Render
+                timeout = TimeSpan.FromSeconds(1); // Shorter timeout for Render
                 endTime = DateTime.UtcNow.Add(timeout);
             }
             

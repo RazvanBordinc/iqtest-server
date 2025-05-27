@@ -6,6 +6,7 @@ using IqTest_server.Data;
 using IqTest_server.Services;
 using System;
 using System.Threading.Tasks;
+using StackExchange.Redis;
 
 namespace IqTest_server.Controllers
 {
@@ -115,6 +116,45 @@ namespace IqTest_server.Controllers
                 IsColdStart = isColdStart,
                 Message = isColdStart ? "Server was sleeping, now awake!" : "Server was already active"
             });
+        }
+        
+        // Redis health check endpoint
+        [HttpGet("redis")]
+        [AllowAnonymous]
+        [Microsoft.AspNetCore.Cors.EnableCors("AllowAll")]
+        public async Task<IActionResult> RedisHealth([FromServices] IConnectionMultiplexer redis)
+        {
+            try
+            {
+                if (redis == null)
+                {
+                    return Ok(new
+                    {
+                        Status = "Unavailable",
+                        Message = "Redis connection not configured"
+                    });
+                }
+                
+                var db = redis.GetDatabase();
+                var ping = await db.PingAsync();
+                
+                return Ok(new
+                {
+                    Status = "Connected",
+                    Latency = ping.TotalMilliseconds,
+                    IsConnected = redis.IsConnected,
+                    Configuration = redis.Configuration
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Redis health check failed");
+                return Ok(new
+                {
+                    Status = "Error",
+                    Message = ex.Message
+                });
+            }
         }
     }
 }
