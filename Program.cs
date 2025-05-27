@@ -7,6 +7,7 @@ using IqTest_server.Data;
 using IqTest_server.Middleware;
 using IqTest_server.Services;
 using IqTest_server.Utilities;
+using IqTest_server.Models;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.DataProtection.Repositories;
@@ -18,75 +19,56 @@ using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// CRITICAL: Disable default claim mapping
-JwtSecurityTokenHandler.DefaultMapInboundClaims = false;
+// For Render deployment detection (optional)
+var isRender = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("RENDER_SERVICE_ID"));
 
-// Add services to the container
-builder.Services.AddLogging(logging =>
-{
-    logging.ClearProviders();
-    logging.AddConsole();
-    logging.AddDebug();
-    
-    // Configure logging levels based on environment
-    logging.SetMinimumLevel(LogLevel.Information);
-    
-    // Set minimum log levels for specific categories
-    logging.AddFilter("Microsoft", LogLevel.Warning);
-    logging.AddFilter("System", LogLevel.Warning);
-    logging.AddFilter("Microsoft.AspNetCore.Mvc", LogLevel.Warning);
-    logging.AddFilter("Microsoft.AspNetCore.Hosting", LogLevel.Information);
-    
-    // Custom logging configuration for Render deployment
-    if (Environment.GetEnvironmentVariable("RENDER_SERVICE_ID") != null)
-    {
-        logging.AddFilter("IqTest_server", LogLevel.Information);
-    }
-    
-    // Development specific logging
-    if (builder.Environment.IsDevelopment())
-    {
-        logging.AddFilter("IqTest_server", LogLevel.Debug);
-    }
-});
-
-// Register custom HTTP client for logging service
-builder.Services.AddHttpClient("Logging", client =>
-{
-    client.DefaultRequestHeaders.Add("Accept", "application/json");
-});
-
-// Add the custom logging service
-builder.Services.AddSingleton<IqTest_server.Services.LoggingService>();
-
-// Configure Data Protection with in-memory keys for free tier
-// This approach keeps keys in memory, which means they'll be regenerated on service restart
-// It's not ideal for production, but works for a free tier with no persistent disk
-if (builder.Environment.IsDevelopment())
-{
-    // In development, still use file system storage
-    var keysDirectory = new DirectoryInfo("/mnt/c/Users/razva/OneDrive/Desktop/projects/iqtest/data-protection-keys");
-    builder.Services.AddDataProtection()
-        .PersistKeysToFileSystem(keysDirectory)
-        .SetDefaultKeyLifetime(TimeSpan.FromDays(90));
-}
-else
-{
-    // In production (free tier), use default key storage with extended lifetime
-    builder.Services.AddDataProtection()
-        .SetDefaultKeyLifetime(TimeSpan.FromDays(365)); // Longer key lifetime to reduce key rotation frequency
-}
-
-// Database context with connection string validation
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-
-// Log connection string diagnostics (only in production for debugging)
-var isRender = Environment.GetEnvironmentVariable("RENDER_SERVICE_ID") != null;
-var isDevelopment = builder.Environment.IsDevelopment();
-
+// Add environment-specific configuration 
 if (isRender)
 {
-    Console.WriteLine("=== CONNECTION STRING DIAGNOSTICS ===");
+    builder.Configuration.AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: true);
+}
+
+// Logging configuration
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.AddDebug();
+
+// Configure Kestrel
+builder.WebHost.ConfigureKestrel(serverOptions =>
+{
+    serverOptions.Limits.MaxConcurrentConnections = 100;
+    serverOptions.Limits.MaxConcurrentUpgradedConnections = 100;
+    serverOptions.Limits.MaxRequestBodySize = 10 * 1024 * 1024; // 10MB
+});
+
+// Controllers and JSON configuration
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.PropertyNamingPolicy = null;
+        options.JsonSerializerOptions.WriteIndented = true;
+        options.JsonSerializerOptions.Converters.Add(new IqTest_server.Converters.AnswerValueJsonConverter());
+    });
+
+// API endpoints explorer
+builder.Services.AddEndpointsApiExplorer();
+
+// Add HttpContextAccessor
+builder.Services.AddHttpContextAccessor();
+
+// Add Logging Service 
+builder.Services.AddSingleton<LoggingService>();
+
+// Database configuration
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+
+// Connection string debugging for Render deployment
+if (isRender || builder.Environment.IsProduction())
+{
+    Console.WriteLine("=====================================");
+    Console.WriteLine("DATABASE CONNECTION DIAGNOSTICS");
+    Console.WriteLine("=====================================");
+    Console.WriteLine($"Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC");
     Console.WriteLine($"Environment: {builder.Environment.EnvironmentName}");
     Console.WriteLine($"Is Render: {isRender}");
     Console.WriteLine($"Connection string from config (masked): {MaskConnectionString(connectionString ?? string.Empty)}");
@@ -117,96 +99,46 @@ if (string.IsNullOrEmpty(connectionString))
     throw new InvalidOperationException("Database connection string 'DefaultConnection' is missing or empty.");
 }
 
-// Check for common problematic patterns that cause SQL Server keyword errors
-bool connectionStringFixed = false;
-
-// Fix "userid" keyword issue
-if (connectionString.Contains("userid=", StringComparison.OrdinalIgnoreCase) && 
-    !connectionString.Contains("User ID=", StringComparison.Ordinal))
+// Add basic connection parameters if missing
+if (!connectionString.Contains("Connect Timeout", StringComparison.OrdinalIgnoreCase))
 {
-    connectionString = connectionString.Replace("userid=", "User ID=", StringComparison.OrdinalIgnoreCase);
-    Console.WriteLine("WARNING: Fixed connection string 'userid' -> 'User ID' keyword issue automatically.");
-    connectionStringFixed = true;
-}
-
-// Fix "UserId" keyword issue (another common variant)
-if (connectionString.Contains("UserId=", StringComparison.Ordinal) && 
-    !connectionString.Contains("User ID=", StringComparison.Ordinal))
-{
-    connectionString = connectionString.Replace("UserId=", "User ID=", StringComparison.Ordinal);
-    Console.WriteLine("WARNING: Fixed connection string 'UserId' -> 'User ID' keyword issue automatically.");
-    connectionStringFixed = true;
-}
-
-if (connectionStringFixed)
-{
-    Console.WriteLine($"Updated connection string: {connectionString}");
-}
-
-// Ensure essential connection parameters are present
-if (!connectionString.Contains("Connect Timeout", StringComparison.OrdinalIgnoreCase) && 
-    !connectionString.Contains("Connection Timeout", StringComparison.OrdinalIgnoreCase))
-{
-    connectionString += ";Connect Timeout=30"; // Reduced for faster failures
-    Console.WriteLine("Added Connect Timeout=30 to connection string");
-    connectionStringFixed = true;
-}
-
-if (!connectionString.Contains("ConnectRetryCount", StringComparison.OrdinalIgnoreCase))
-{
-    connectionString += ";ConnectRetryCount=2"; // Reduced retries
-    Console.WriteLine("Added ConnectRetryCount=2 to connection string");
-    connectionStringFixed = true;
-}
-
-if (!connectionString.Contains("ConnectRetryInterval", StringComparison.OrdinalIgnoreCase))
-{
-    connectionString += ";ConnectRetryInterval=5"; // Reduced interval
-    Console.WriteLine("Added ConnectRetryInterval=5 to connection string");
-    connectionStringFixed = true;
-}
-
-// Add connection pooling optimizations
-if (!connectionString.Contains("Min Pool Size", StringComparison.OrdinalIgnoreCase))
-{
-    connectionString += ";Min Pool Size=5"; // Minimum connections in pool
-    Console.WriteLine("Added Min Pool Size=5 to connection string");
-    connectionStringFixed = true;
-}
-
-if (!connectionString.Contains("Max Pool Size", StringComparison.OrdinalIgnoreCase))
-{
-    connectionString += ";Max Pool Size=100"; // Maximum connections in pool
-    Console.WriteLine("Added Max Pool Size=100 to connection string");
-    connectionStringFixed = true;
+    connectionString += ";Connect Timeout=30";
 }
 
 if (!connectionString.Contains("Pooling", StringComparison.OrdinalIgnoreCase))
 {
-    connectionString += ";Pooling=true"; // Ensure pooling is enabled
-    Console.WriteLine("Added Pooling=true to connection string");
-    connectionStringFixed = true;
-}
-
-if (connectionStringFixed)
-{
-    Console.WriteLine($"Final connection string: {connectionString}");
+    connectionString += ";Pooling=true;Min Pool Size=5;Max Pool Size=100";
 }
 
 // Additional connection string validation for SQL Server
 try
 {
     var builder_test = new Microsoft.Data.SqlClient.SqlConnectionStringBuilder(connectionString);
-    Console.WriteLine($"Connection string validation passed. Server: {builder_test.DataSource}, Database: {builder_test.InitialCatalog}");
     
-    // Log connection details for debugging (without sensitive info)
-    Console.WriteLine($"Connection details - Server: {builder_test.DataSource}, Database: {builder_test.InitialCatalog}, Timeout: {builder_test.ConnectTimeout}");
-    
-    // Additional validation for Render environment
-    if (Environment.GetEnvironmentVariable("RENDER_SERVICE_ID") != null)
+    // Check for required components
+    if (string.IsNullOrWhiteSpace(builder_test.DataSource))
     {
-        Console.WriteLine("Detected Render environment");
-        
+        throw new InvalidOperationException("Connection string is missing 'Data Source' (server address).");
+    }
+    
+    if (string.IsNullOrWhiteSpace(builder_test.InitialCatalog))
+    {
+        throw new InvalidOperationException("Connection string is missing 'Initial Catalog' (database name).");
+    }
+    
+    if (!builder_test.IntegratedSecurity && string.IsNullOrWhiteSpace(builder_test.UserID))
+    {
+        throw new InvalidOperationException("Connection string must specify either 'Integrated Security=true' or provide 'User ID' and 'Password'.");
+    }
+    
+    if (!string.IsNullOrWhiteSpace(builder_test.UserID) && string.IsNullOrWhiteSpace(builder_test.Password))
+    {
+        Console.WriteLine("WARNING: User ID specified but Password is empty. This may cause authentication failures.");
+    }
+    
+    // Render-specific warnings
+    if (isRender)
+    {
         // Log environment details for debugging
         Console.WriteLine($"RENDER_SERVICE_ID: {Environment.GetEnvironmentVariable("RENDER_SERVICE_ID")}");
         Console.WriteLine($"Database server: {builder_test.DataSource}");
@@ -267,33 +199,17 @@ builder.Services.AddCors(options =>
                 "https://iqtest-app-*.vercel.app", // Vercel preview deployments
                 "https://iqtest-server-tkhl.onrender.com",
                 "http://localhost:3000",
-                "https://localhost:3000"
-             )
-             .SetIsOriginAllowedToAllowWildcardSubdomains()
-             .AllowAnyMethod()
-             .AllowAnyHeader()
-             .AllowCredentials()
-             .SetPreflightMaxAge(TimeSpan.FromSeconds(86400)); // Cache preflight for 24 hours
+                "http://localhost:3001",
+                "http://localhost:5000",
+                "http://localhost:5164"
+            )
+            .AllowCredentials()
+            .AllowAnyMethod()
+            .AllowAnyHeader()
+            .WithExposedHeaders("X-Total-Count");
     });
     
-    // For API requests with credentials (same as default)
-    options.AddPolicy("AllowedOrigins", policy =>
-    {
-        policy.WithOrigins(
-                "https://iqtest-app.vercel.app",
-                "https://iqtest-app-*.vercel.app", // Vercel preview deployments
-                "https://iqtest-server-tkhl.onrender.com",
-                "http://localhost:3000",
-                "https://localhost:3000"
-             )
-             .SetIsOriginAllowedToAllowWildcardSubdomains()
-             .AllowAnyMethod()
-             .AllowAnyHeader()
-             .AllowCredentials()
-             .SetPreflightMaxAge(TimeSpan.FromSeconds(86400));
-    });
-    
-    // For health checks and preflight requests
+    // Specific policy for health endpoints (no credentials)
     options.AddPolicy("AllowAll", policy =>
     {
         policy.AllowAnyOrigin()
@@ -302,230 +218,67 @@ builder.Services.AddCors(options =>
     });
 });
 
-// Get Redis connection string first
+// Redis configuration - simplified for Upstash
 var redisConnectionString = builder.Configuration["Redis:ConnectionString"] ?? "localhost:6379";
 
 // Redis for caching and rate limiting
 builder.Services.AddStackExchangeRedisCache(options =>
 {
-    options.Configuration = redisConnectionString; // Use the same connection string
+    options.Configuration = redisConnectionString;
     options.InstanceName = "IqTest";
 });
 
-// Create Redis configuration options programmatically instead of parsing
-var redisOptions = new ConfigurationOptions
+// Redis multiplexer - optimized for Upstash
+builder.Services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(sp =>
 {
-    AbortOnConnectFail = false, // Don't fail if Redis is temporarily unavailable
-    ConnectRetry = 2, // Reduced retries
-    ConnectTimeout = 2000, // 2 second timeout
-    Password = "", // Will be set below if present in connection string
-    Ssl = false, // Will be set to true for Upstash Redis
-    SyncTimeout = 2000, // 2 second timeout
-    AsyncTimeout = 2000, // 2 second timeout
-    KeepAlive = 60, // Add keep-alive option (seconds)
-    ReconnectRetryPolicy = new LinearRetry(1000), // Simple linear retry with 1 second delay
-    DefaultDatabase = 0,
-    AllowAdmin = false, // Security: disable admin commands
-    CommandMap = CommandMap.Default // Use default command map
-};
-
-// Create a logger for Redis configuration
-// Use a simple console logger to avoid calling BuildServiceProvider
-var redisLogger = LoggerFactory.Create(logging => 
-{
-    logging.AddConsole();
-    logging.AddDebug();
-}).CreateLogger("Redis");
-
-// Parse the Redis connection string manually
-try
-{
-    if (!string.IsNullOrEmpty(redisConnectionString))
+    var logger = sp.GetRequiredService<ILogger<Program>>();
+    
+    try
     {
-        if (redisConnectionString.Contains("@") && redisConnectionString.StartsWith("redis://"))
+        ConfigurationOptions options;
+        
+        // Parse Upstash URL if it's in URI format
+        if (redisConnectionString.StartsWith("redis://") || redisConnectionString.StartsWith("rediss://"))
         {
-            // Handle Upstash connection string format: redis://default:PASSWORD@HOST:PORT
-            redisLogger.LogInformation("Configuring Upstash Redis connection");
+            var uri = new Uri(redisConnectionString);
+            var userInfo = uri.UserInfo.Split(':');
             
-            // Remove the protocol prefix
-            var withoutProtocol = redisConnectionString.Substring("redis://".Length);
-            
-            // Split at @ to separate credentials from endpoint
-            var parts = withoutProtocol.Split('@');
-            if (parts.Length == 2)
+            options = new ConfigurationOptions
             {
-                // Extract credentials
-                var credentials = parts[0].Split(':');
-                if (credentials.Length >= 2)
-                {
-                    redisOptions.Password = credentials[1];
-                }
-                
-                // Extract endpoint
-                var endpoint = parts[1];
-                var hostPort = endpoint.Split(':');
-                if (hostPort.Length == 2)
-                {
-                    redisOptions.EndPoints.Add(hostPort[0], int.Parse(hostPort[1]));
-                    redisOptions.Ssl = true; // Upstash Redis requires SSL
-                    redisLogger.LogInformation("Successfully configured Upstash Redis connection to: {Host}", hostPort[0]);
-                }
-            }
+                EndPoints = { { uri.Host, uri.Port } },
+                Password = userInfo.Length > 1 ? userInfo[1] : "",
+                Ssl = uri.Scheme == "rediss",
+                AbortOnConnectFail = false,
+                ConnectTimeout = 3000, // Reduced from 5000
+                SyncTimeout = 3000,    // Reduced from 5000
+                AsyncTimeout = 3000,   // Reduced from 5000
+                ConnectRetry = 2       // Reduced from 3
+            };
         }
         else
         {
-            // Handle both simple host:port format and more complex connection string format
-            redisLogger.LogInformation("Configuring standard Redis connection");
-            
-            // Check if we have a more complex connection string with password
-            if (redisConnectionString.Contains(","))
-            {
-                // This looks like a complex connection string, try to parse it
-                var parts = redisConnectionString.Split(',');
-                string host = "localhost";
-                int port = 6379;
-                
-                // Extract host:port from the first part
-                var hostPortPart = parts[0];
-                var hostPortSplit = hostPortPart.Split(':');
-                if (hostPortSplit.Length >= 1)
-                {
-                    host = hostPortSplit[0];
-                    if (hostPortSplit.Length > 1)
-                    {
-                        port = int.Parse(hostPortSplit[1]);
-                    }
-                }
-                
-                // Add the endpoint
-                redisOptions.EndPoints.Add(host, port);
-                
-                // Process other parts (like password, abortConnect, etc.)
-                foreach (var part in parts.Skip(1))
-                {
-                    var keyValue = part.Split('=');
-                    if (keyValue.Length == 2)
-                    {
-                        var key = keyValue[0].Trim().ToLower();
-                        var value = keyValue[1].Trim();
-                        
-                        switch (key)
-                        {
-                            case "password":
-                                redisOptions.Password = value;
-                                break;
-                            case "abortconnect":
-                                if (bool.TryParse(value, out bool abortConnect))
-                                {
-                                    redisOptions.AbortOnConnectFail = abortConnect;
-                                }
-                                break;
-                            case "ssl":
-                                if (bool.TryParse(value, out bool ssl))
-                                {
-                                    redisOptions.Ssl = ssl;
-                                }
-                                break;
-                            // Add more parameters as needed
-                        }
-                    }
-                }
-                
-                redisLogger.LogInformation("Successfully configured Redis connection to: {Host}:{Port} with extended options", host, port);
-            }
-            else
-            {
-                // Simple host:port format
-                var hostPort = redisConnectionString.Split(':');
-                if (hostPort.Length >= 1)
-                {
-                    var host = hostPort[0];
-                    var port = hostPort.Length > 1 ? int.Parse(hostPort[1]) : 6379;
-                    redisOptions.EndPoints.Add(host, port);
-                    redisLogger.LogInformation("Successfully configured Redis connection to: {Host}:{Port}", host, port);
-                }
-                else
-                {
-                    redisLogger.LogWarning("Invalid Redis connection string format, using default localhost:6379");
-                    redisOptions.EndPoints.Add("localhost", 6379);
-                }
-            }
+            // Standard connection string
+            options = ConfigurationOptions.Parse(redisConnectionString);
+            options.AbortOnConnectFail = false;
+            options.ConnectTimeout = 3000;
         }
-    }
-    else
-    {
-        // Default to localhost if no connection string is provided
-        redisLogger.LogInformation("No Redis connection string provided, using default localhost:6379");
-        redisOptions.EndPoints.Add("localhost", 6379);
-    }
-}
-catch (Exception ex)
-{
-    redisLogger.LogError(ex, "Failed to parse Redis connection string. Using default localhost:6379");
-    redisOptions.EndPoints.Clear();
-    redisOptions.EndPoints.Add("localhost", 6379);
-}
-
-builder.Services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(sp =>
-{
-    try
-    {
-        var serviceLogger = sp.GetRequiredService<ILogger<Program>>();
-        // Format endpoints manually with correct type casting for DnsEndPoint
-        string endpoints = string.Join(", ", redisOptions.EndPoints.Select(ep => {
-            if (ep is System.Net.DnsEndPoint dnsEp)
-                return $"{dnsEp.Host}:{dnsEp.Port}";
-            else if (ep is System.Net.IPEndPoint ipEp)
-                return $"{ipEp.Address}:{ipEp.Port}";
-            else
-                return ep.ToString();
-        }));
-            
-        serviceLogger.LogInformation("Attempting to connect to Redis with the following settings: " +
-            $"Endpoints: {endpoints} " +
-            $"ConnectTimeout: {redisOptions.ConnectTimeout}ms " +
-            $"AbortOnConnectFail: {redisOptions.AbortOnConnectFail} " +
-            $"ConnectRetry: {redisOptions.ConnectRetry} attempts");
         
-        var multiplexer = ConnectionMultiplexer.Connect(redisOptions);
-        
-        // Verify connection is successful
-        var connectionState = multiplexer.IsConnected ? "Connected" : "Disconnected";
-        serviceLogger.LogInformation("Redis connection established. Connection state: {State}", connectionState);
-        
-        // Register error and reconnect handlers
-        multiplexer.ConnectionFailed += (sender, args) => {
-            serviceLogger.LogError("Redis connection failed. Endpoint: {Endpoint}, Exception: {Exception}", 
-                args.EndPoint, args.Exception?.Message ?? "No exception details");
-        };
-        
-        multiplexer.ConnectionRestored += (sender, args) => {
-            serviceLogger.LogInformation("Redis connection restored. Endpoint: {Endpoint}", args.EndPoint);
-        };
-        
-        multiplexer.ErrorMessage += (sender, args) => {
-            serviceLogger.LogWarning("Redis error: {Message}", args.Message);
-        };
-        
+        var multiplexer = ConnectionMultiplexer.Connect(options);
+        logger.LogInformation("Connected to Redis");
         return multiplexer;
     }
     catch (Exception ex)
     {
-        var serviceLogger = sp.GetRequiredService<ILogger<Program>>();
-        serviceLogger.LogError(ex, "Failed to connect to Redis. The application will continue without Redis functionality.");
+        logger.LogWarning(ex, "Redis unavailable, using fallback");
         
-        // Return a dummy multiplexer that won't actually connect
-        var configOptions = new ConfigurationOptions
-        {
+        // Simple fallback that won't delay startup
+        return ConnectionMultiplexer.Connect(new ConfigurationOptions 
+        { 
+            EndPoints = { { "localhost", 6379 } },
             AbortOnConnectFail = false,
-            EndPoints = { { "127.0.0.1", 6379 } },
-            ConnectTimeout = 100, // Very short timeout since we know it will fail
-            ConnectRetry = 0, // No retries
-            ReconnectRetryPolicy = new LinearRetry(1000) // Simple retry policy
-        };
-        
-        serviceLogger.LogWarning("Using dummy Redis connection multiplexer to prevent application failure");
-        return ConnectionMultiplexer.Connect(configOptions);
+            ConnectTimeout = 1,
+            ConnectRetry = 0
+        });
     }
 });
 
@@ -548,14 +301,25 @@ builder.Services.AddScoped<RateLimitingService>();
 builder.Services.AddScoped<ScoreCalculationService>();
 builder.Services.AddScoped<ProfileService>();
 
-// Background services - disable for production to reduce startup time
-if (builder.Environment.IsDevelopment())
+// Configure Data Protection (for key persistence across deployments)
+var dataProtectionPath = Path.Combine(Directory.GetCurrentDirectory(), "data-protection-keys");
+Directory.CreateDirectory(dataProtectionPath);
+
+builder.Services.AddDataProtection()
+    .SetApplicationName("IqTest")
+    .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionPath))
+    .SetDefaultKeyLifetime(TimeSpan.FromDays(90));
+
+// JWT Authentication
+var jwtSettings = builder.Configuration.GetSection("Jwt");
+var key = Encoding.ASCII.GetBytes(jwtSettings["Key"]);
+
+// Configure JWT token validation to be more lenient on time validation
+builder.Services.Configure<JwtSecurityTokenHandler>(options =>
 {
-    builder.Services.AddHostedService<QuestionsRefreshService>();
-}
+    options.SetDefaultTimesOnTokenCreation = false;
+});
 
-
-// JWT Authentication with custom token extraction
 builder.Services.AddAuthentication(options =>
 {
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -563,204 +327,214 @@ builder.Services.AddAuthentication(options =>
 })
 .AddJwtBearer(options =>
 {
+    options.RequireHttpsMetadata = false;
+    options.SaveToken = true;
     options.TokenValidationParameters = new TokenValidationParameters
     {
-        ValidateIssuer = true,
-        ValidateAudience = true,
-        ValidateLifetime = true,
         ValidateIssuerSigningKey = true,
-        ValidIssuer = builder.Configuration["Jwt:Issuer"],
-        ValidAudience = builder.Configuration["Jwt:Audience"],
-        IssuerSigningKey = new SymmetricSecurityKey(
-            Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"] ?? throw new InvalidOperationException("JWT Key is missing"))),
-        ClockSkew = TimeSpan.Zero, // Remove default 5-minute clock skew
-        NameClaimType = System.Security.Claims.ClaimTypes.NameIdentifier, // Ensure correct claim mapping
-        RoleClaimType = System.Security.Claims.ClaimTypes.Role
+        IssuerSigningKey = new SymmetricSecurityKey(key),
+        ValidateIssuer = true,
+        ValidIssuer = jwtSettings["Issuer"],
+        ValidateAudience = true,
+        ValidAudience = jwtSettings["Audience"],
+        ValidateLifetime = true,
+        ClockSkew = TimeSpan.FromMinutes(5), // Allow 5 minutes of clock skew
+        RequireExpirationTime = true
     };
-
+    
+    // Better error handling
     options.Events = new JwtBearerEvents
     {
-        OnMessageReceived = context =>
-        {
-            // First try to get token from cookies
-            var cookieToken = context.Request.Cookies["token"];
-
-            // Then try Authorization header
-            var authHeader = context.Request.Headers["Authorization"].FirstOrDefault();
-            var headerToken = !string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer ")
-                ? authHeader.Substring("Bearer ".Length).Trim()
-                : null;
-
-            // Basic validation to avoid passing malformed tokens to the JWT handler
-            // Only set the token if it's not empty and has at least one dot (indicating JWT format)
-            var tokenToUse = cookieToken ?? headerToken;
-            if (!string.IsNullOrEmpty(tokenToUse) && tokenToUse.Contains("."))
-            {
-                context.Token = tokenToUse;
-            }
-
-            return Task.CompletedTask;
-        },
-        OnTokenValidated = context =>
-        {
-            // Token is valid
-            var userId = context.Principal?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-            return Task.CompletedTask;
-        },
         OnAuthenticationFailed = context =>
         {
-            // Authentication failed - will be handled by error middleware
+            var logger = context.HttpContext.RequestServices.GetRequiredService<ILogger<Program>>();
+            logger.LogWarning("Authentication failed: {Message}", context.Exception.Message);
+            
+            if (context.Exception.GetType() == typeof(SecurityTokenExpiredException))
+            {
+                context.Response.Headers.Add("Token-Expired", "true");
+            }
+            
             return Task.CompletedTask;
         },
         OnChallenge = context =>
         {
-            // Skip challenge for OPTIONS requests
-            if (context.Request.Method == "OPTIONS")
+            var logger = context.HttpContext.RequestServices.GetRequiredService<ILogger<Program>>();
+            logger.LogInformation("JWT Bearer challenge occurred: {Error}", context.Error);
+            
+            // Skip default behavior to avoid overwriting custom error responses
+            if (!context.Response.HasStarted)
             {
                 context.HandleResponse();
-                return Task.CompletedTask;
+                context.Response.StatusCode = 401;
+                context.Response.ContentType = "application/json";
+                return context.Response.WriteAsync(System.Text.Json.JsonSerializer.Serialize(new 
+                { 
+                    error = "Unauthorized", 
+                    message = context.ErrorDescription ?? "Authentication required"
+                }));
             }
+            
             return Task.CompletedTask;
         }
     };
 });
-builder.Services.AddHttpClient("GitHub", client =>
-{
-    client.DefaultRequestHeaders.Add("Accept", "application/vnd.github.v3+json");
-    client.DefaultRequestHeaders.Add("User-Agent", "IqTest-server");
-});
-builder.Services.AddControllers(options =>
-    {
-        options.SuppressAsyncSuffixInActionNames = false;
-    })
-    .AddJsonOptions(options =>
-    {
-        options.JsonSerializerOptions.PropertyNamingPolicy = null;
-        options.JsonSerializerOptions.DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.Never;
-        options.JsonSerializerOptions.AllowTrailingCommas = true;
-        options.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
-        options.JsonSerializerOptions.WriteIndented = true;
-    });
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
 
-// Add Response Caching middleware
-builder.Services.AddResponseCaching();
+// Conditional background services based on environment
+if (!builder.Environment.IsProduction() || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ENABLE_BACKGROUND_SERVICES")))
+{
+    builder.Services.AddHostedService<QuestionsRefreshService>();
+}
 
 var app = builder.Build();
-
-// Helper function to mask sensitive connection string data
-static string MaskConnectionString(string connectionString)
-{
-    if (string.IsNullOrEmpty(connectionString)) return "null";
-    
-    return System.Text.RegularExpressions.Regex.Replace(connectionString, 
-        @"(password|pwd|user id|uid)\s*=\s*[^;]+", 
-        "$1=***", 
-        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-}
-
-// Database migration is now handled separately - not on startup
-// This improves startup performance and prevents migration conflicts in scaled environments
-// Skip database connection check on startup for faster cold starts
-if (app.Environment.IsDevelopment())
-{
-    using (var scope = app.Services.CreateScope())
-    {
-        var services = scope.ServiceProvider;
-        var logger = services.GetRequiredService<ILogger<Program>>();
-        
-        try
-        {
-            var context = services.GetRequiredService<ApplicationDbContext>();
-            
-            // Only check if database can connect, don't run migrations
-            logger.LogInformation("Checking database connection...");
-            var canConnect = await context.Database.CanConnectAsync();
-            if (canConnect)
-            {
-                logger.LogInformation("Database connection successful");
-            }
-            else
-            {
-                logger.LogWarning("Cannot connect to database - application may have limited functionality");
-            }
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Error checking database connection");
-            // Continue running even if database is not available
-        }
-    }
-}
 
 // Configure the HTTP request pipeline
 if (app.Environment.IsDevelopment())
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
+    app.UseDeveloperExceptionPage();
+}
+else
+{
+    // Use custom error handling middleware in production
+    app.UseMiddleware<ErrorHandlingMiddleware>();
 }
 
-// Early exit for health endpoints to improve performance
-app.Use(async (context, next) =>
-{
-    var path = context.Request.Path.Value?.ToLower();
-    if (path == "/api/health" || path == "/api/health/ping" || path == "/api/health/wake")
-    {
-        // For health endpoints, we don't need credentials, so we can use wildcard
-        if (context.Request.Method == "OPTIONS")
-        {
-            context.Response.Headers["Access-Control-Allow-Origin"] = "*";
-            context.Response.Headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS";
-            context.Response.Headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization";
-            context.Response.Headers["Access-Control-Max-Age"] = "86400";
-            context.Response.StatusCode = 204;
-            return;
-        }
-        
-        // Add CORS headers for actual requests
-        context.Response.Headers["Access-Control-Allow-Origin"] = "*";
-        context.Response.Headers["Cache-Control"] = "no-cache, no-store, must-revalidate";
-    }
-    
-    await next();
-});
+// Security headers - MUST be early in pipeline
+app.UseMiddleware<SecurityHeadersMiddleware>();
 
-app.UseHttpsRedirection();
-
-// Response caching middleware (must come early in pipeline)
-app.UseResponseCaching();
-
-// CRITICAL: CORS must come before other middleware
+// CORS - MUST be before authentication and authorization
 app.UseCors();
 
-// Only apply heavy middleware for non-health endpoints
-app.UseWhen(context => 
+// Conditional middleware based on environment
+if (builder.Environment.IsProduction())
 {
-    var path = context.Request.Path.Value?.ToLower();
-    return !(path == "/api/health" || path == "/api/health/ping" || path == "/api/health/wake" || path == "/");
-}, appBuilder =>
+    // Rate limiting middleware - only in production
+    app.UseMiddleware<RateLimitingMiddleware>();
+    
+    // Request logging middleware - reduced in production
+    app.UseWhen(context => !context.Request.Path.StartsWithSegments("/api/health"), 
+        appBuilder => appBuilder.UseMiddleware<RequestLoggingMiddleware>());
+}
+else
 {
-    // Security headers
-    appBuilder.UseMiddleware<SecurityHeadersMiddleware>();
-    
-    // CSRF protection
-    appBuilder.UseMiddleware<CsrfProtectionMiddleware>();
-    
-    // Rate limiting middleware
-    appBuilder.UseMiddleware<RateLimitingMiddleware>();
-    
-    // Request logging middleware
-    appBuilder.UseMiddleware<RequestLoggingMiddleware>();
-});
+    // Full request logging in development
+    app.UseMiddleware<RequestLoggingMiddleware>();
+}
 
+// Authentication & Authorization
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.UseMiddleware<JsonExceptionMiddleware>();
-app.UseMiddleware<ErrorHandlingMiddleware>();
-
+// Map controllers
 app.MapControllers();
+
+// Database initialization
+using (var scope = app.Services.CreateScope())
+{
+    var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    
+    try 
+    {
+        // Log the actual connection string being used (masked)
+        var actualConnectionString = context.Database.GetConnectionString();
+        logger.LogInformation("Attempting database migration with connection string: {ConnectionString}", 
+            MaskConnectionString(actualConnectionString ?? string.Empty));
+        
+        // Apply migrations with detailed logging
+        logger.LogInformation("Starting database migration...");
+        
+        // Test the connection first
+        var canConnect = await context.Database.CanConnectAsync();
+        if (!canConnect)
+        {
+            logger.LogError("Cannot connect to database. Please check the connection string.");
+            if (isRender)
+            {
+                logger.LogError("On Render: Ensure ConnectionStrings__DefaultConnection environment variable is set correctly.");
+            }
+        }
+        else
+        {
+            logger.LogInformation("Database connection successful. Applying migrations...");
+            await context.Database.MigrateAsync();
+            logger.LogInformation("Database migration completed successfully.");
+        }
+    }
+    catch (Microsoft.Data.SqlClient.SqlException sqlEx)
+    {
+        logger.LogError(sqlEx, "SQL Server connection error during migration. Error Code: {ErrorCode}", sqlEx.Number);
+        
+        // Provide specific guidance based on error code
+        switch (sqlEx.Number)
+        {
+            case 18456: // Login failed
+                logger.LogError("Authentication failed. Check username and password in connection string.");
+                break;
+            case 4060: // Cannot open database
+                logger.LogError("Cannot open database. Ensure the database name in 'Initial Catalog' is correct.");
+                break;
+            case -2: // Timeout
+                logger.LogError("Connection timeout. The server may be unreachable or slow to respond.");
+                break;
+            case 2: // Server not found
+                logger.LogError("Server not found. Check the 'Data Source' in your connection string.");
+                break;
+            default:
+                logger.LogError("SQL Error details: {Message}", sqlEx.Message);
+                break;
+        }
+        
+        if (isRender)
+        {
+            logger.LogError("Render deployment detected. Common issues:");
+            logger.LogError("1. Ensure ConnectionStrings__DefaultConnection environment variable is set");
+            logger.LogError("2. Database server must be accessible from Render (not localhost)");
+            logger.LogError("3. Check firewall rules allow connections from Render IP addresses");
+        }
+        
+        // Don't throw in production to allow app to start (with limited functionality)
+        if (!app.Environment.IsProduction())
+        {
+            throw;
+        }
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Failed to migrate database");
+        
+        // Don't throw in production to allow app to start (with limited functionality)
+        if (!app.Environment.IsProduction())
+        {
+            throw;
+        }
+    }
+}
+
+// Ensure test types are seeded
+using (var scope = app.Services.CreateScope())
+{
+    var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    
+    try
+    {
+        // Only seed if we can connect to the database
+        if (await context.Database.CanConnectAsync())
+        {
+            await TestTypeSeeder.SeedTestTypesAsync(context, logger);
+        }
+        else
+        {
+            logger.LogWarning("Skipping test type seeding - database is not available");
+        }
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Failed to seed test types");
+        // Don't throw - allow app to continue
+    }
+}
 
 // Root endpoint to avoid 404 errors on health checks
 app.MapGet("/", () => Results.Ok(new 
@@ -793,3 +567,141 @@ app.Map("/api/logging-status", (ILogger<Program> logger, LoggingService loggingS
 });
 
 app.Run();
+
+// Helper method to mask sensitive connection string data
+string MaskConnectionString(string connectionString)
+{
+    if (string.IsNullOrEmpty(connectionString))
+        return "(empty)";
+    
+    var builder = new System.Text.StringBuilder();
+    var parts = connectionString.Split(';');
+    
+    foreach (var part in parts)
+    {
+        if (string.IsNullOrWhiteSpace(part))
+            continue;
+            
+        var keyValue = part.Split('=', 2);
+        if (keyValue.Length == 2)
+        {
+            var key = keyValue[0].Trim();
+            var value = keyValue[1].Trim();
+            
+            // Mask sensitive values
+            if (key.Contains("Password", StringComparison.OrdinalIgnoreCase) ||
+                key.Contains("Pwd", StringComparison.OrdinalIgnoreCase))
+            {
+                builder.Append($"{key}=****;");
+            }
+            else if (key.Contains("User", StringComparison.OrdinalIgnoreCase) ||
+                     key.Contains("UID", StringComparison.OrdinalIgnoreCase))
+            {
+                // Partially mask username
+                if (value.Length > 2)
+                {
+                    builder.Append($"{key}={value.Substring(0, 2)}***;");
+                }
+                else
+                {
+                    builder.Append($"{key}=***;");
+                }
+            }
+            else
+            {
+                builder.Append($"{key}={value};");
+            }
+        }
+        else
+        {
+            builder.Append($"{part};");
+        }
+    }
+    
+    return builder.ToString().TrimEnd(';');
+}
+
+// Test type seeder helper class
+public static class TestTypeSeeder
+{
+    public static async Task SeedTestTypesAsync(ApplicationDbContext context, ILogger logger)
+    {
+        try
+        {
+            // Check if test types already exist
+            if (await context.TestTypes.AnyAsync())
+            {
+                logger.LogInformation("Test types already seeded");
+                return;
+            }
+
+            logger.LogInformation("Seeding test types...");
+
+            var testTypes = new[]
+            {
+                new TestType 
+                { 
+                    Id = 1, 
+                    Title = "Numerical Reasoning", 
+                    Description = "Test your ability to work with numbers, patterns, and mathematical concepts",
+                    LongDescription = "This test evaluates your numerical reasoning skills through a series of mathematical and logical problems. You'll encounter questions involving number sequences, mathematical operations, and quantitative reasoning that assess your ability to think analytically with numbers.",
+                    TimeLimit = "25 minutes",
+                    QuestionsCount = 20,
+                    Difficulty = "Medium",
+                    TypeId = "number-logic",
+                    Icon = "calculator",
+                    Color = "#4F46E5"
+                },
+                new TestType 
+                { 
+                    Id = 2, 
+                    Title = "Verbal Intelligence", 
+                    Description = "Assess your language skills, vocabulary, and verbal reasoning abilities",
+                    LongDescription = "This comprehensive verbal intelligence test measures your command of language, vocabulary depth, and ability to understand complex verbal relationships. Questions include analogies, sentence completion, and reading comprehension to evaluate your linguistic intelligence.",
+                    TimeLimit = "30 minutes",
+                    QuestionsCount = 20,
+                    Difficulty = "Medium",
+                    TypeId = "word-logic",
+                    Icon = "book",
+                    Color = "#059669"
+                },
+                new TestType 
+                { 
+                    Id = 3, 
+                    Title = "Memory & Recall", 
+                    Description = "Challenge your memory capacity and recall abilities",
+                    LongDescription = "Test your short-term and working memory through various challenging exercises. This assessment includes pattern recognition, sequence memorization, and visual memory tasks designed to measure your cognitive recall abilities under timed conditions.",
+                    TimeLimit = "22 minutes",
+                    QuestionsCount = 15,
+                    Difficulty = "Hard",
+                    TypeId = "memory",
+                    Icon = "brain",
+                    Color = "#DC2626"
+                },
+                new TestType 
+                { 
+                    Id = 4, 
+                    Title = "Comprehensive IQ", 
+                    Description = "A complete assessment covering numerical, verbal, and memory skills",
+                    LongDescription = "Our most thorough intelligence assessment combining elements from all cognitive domains. This comprehensive test evaluates your overall intellectual capacity through a balanced mix of numerical, verbal, spatial, and memory challenges for a complete IQ profile.",
+                    TimeLimit = "45 minutes",
+                    QuestionsCount = 16,
+                    Difficulty = "Mixed",
+                    TypeId = "mixed",
+                    Icon = "lightbulb",
+                    Color = "#7C3AED"
+                }
+            };
+
+            context.TestTypes.AddRange(testTypes);
+            await context.SaveChangesAsync();
+
+            logger.LogInformation("Successfully seeded {Count} test types", testTypes.Length);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error seeding test types");
+            throw;
+        }
+    }
+}
