@@ -197,19 +197,28 @@ builder.Services.AddCors(options =>
     // Default policy for most endpoints (with credentials)
     options.AddDefaultPolicy(policy =>
     {
-        policy.WithOrigins(
-                "https://iqtest-app.vercel.app",
-                "https://iqtest-app-*.vercel.app", // Vercel preview deployments
-                "https://iqtest-server-tkhl.onrender.com",
-                "http://localhost:3000",
-                "http://localhost:3001",
-                "http://localhost:5000",
-                "http://localhost:5164"
-            )
+        policy.SetIsOriginAllowed(origin =>
+            {
+                // Allow any localhost origin
+                if (origin.StartsWith("http://localhost:") || origin.StartsWith("https://localhost:"))
+                    return true;
+                    
+                // Allow specific production domains
+                if (origin == "https://iqtest-app.vercel.app" || 
+                    origin == "https://iqtest-server-tkhl.onrender.com")
+                    return true;
+                    
+                // Allow Vercel preview deployments
+                if (origin.StartsWith("https://") && origin.EndsWith(".vercel.app"))
+                    return true;
+                    
+                return false;
+            })
             .AllowCredentials()
             .AllowAnyMethod()
             .AllowAnyHeader()
-            .WithExposedHeaders("X-Total-Count");
+            .WithExposedHeaders("X-Total-Count")
+            .SetPreflightMaxAge(TimeSpan.FromMinutes(10));
     });
     
     // Specific policy for health endpoints (no credentials)

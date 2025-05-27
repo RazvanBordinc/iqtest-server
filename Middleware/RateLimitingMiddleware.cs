@@ -25,6 +25,13 @@ namespace IqTest_server.Middleware
         {
             this.context = context; // Store context for use in other methods
             
+            // Skip rate limiting for OPTIONS requests (CORS preflight)
+            if (context.Request.Method == "OPTIONS")
+            {
+                await _next(context);
+                return;
+            }
+            
             var endpoint = context.Request.Path.Value.ToLower();
             
             // Check if this endpoint should be rate limited

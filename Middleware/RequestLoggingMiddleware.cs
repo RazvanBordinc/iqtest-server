@@ -45,8 +45,9 @@ namespace IqTest_server.Middleware
         
         public async Task InvokeAsync(HttpContext context)
         {
-            // Skip logging for health checks and static files
-            if (context.Request.Path.StartsWithSegments("/health") || 
+            // Skip logging for health checks, static files, and OPTIONS requests
+            if (context.Request.Method == "OPTIONS" ||
+                context.Request.Path.StartsWithSegments("/health") || 
                 context.Request.Path.StartsWithSegments("/api/health") ||
                 context.Request.Path.StartsWithSegments("/swagger") ||
                 context.Request.Path.Value.Contains("."))
