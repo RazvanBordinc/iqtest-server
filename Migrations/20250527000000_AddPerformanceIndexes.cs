@@ -21,7 +21,7 @@ namespace IqTest_server.Migrations
                 name: "IX_LeaderboardEntries_Score_DESC",
                 table: "LeaderboardEntries",
                 column: "Score",
-                descending: true);
+                descending: new[] { true });
 
             migrationBuilder.CreateIndex(
                 name: "IX_LeaderboardEntries_LastUpdated",
@@ -38,7 +38,7 @@ namespace IqTest_server.Migrations
                 name: "IX_TestResults_Score_DESC",
                 table: "TestResults",
                 column: "Score",
-                descending: true);
+                descending: new[] { true });
 
             // Add index for Users table
             migrationBuilder.CreateIndex(

@@ -18,19 +18,22 @@ namespace IqTest_server.Services
         private readonly QuestionService _questionService;
         private readonly AnswerValidatorService _answerValidator;
         private readonly RedisService _redisService;
+        private readonly CacheService _cacheService;
 
         public TestService(
             ApplicationDbContext context,
             ILogger<TestService> logger,
             QuestionService questionService,
             AnswerValidatorService answerValidator,
-            RedisService redisService)
+            RedisService redisService,
+            CacheService cacheService)
         {
             _context = context;
             _logger = logger;
             _questionService = questionService;
             _answerValidator = answerValidator;
             _redisService = redisService;
+            _cacheService = cacheService;
         }
 
         public async Task<List<TestTypeDto>> GetAllTestTypesAsync()
@@ -647,6 +650,80 @@ namespace IqTest_server.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error clearing all test cooldowns");
+                throw;
+            }
+        }
+
+        // Check test availability with cooldown info
+        public async Task<object> CheckTestAvailabilityAsync(int userId, string testTypeId)
+        {
+            try
+            {
+                var canTakeTest = await CanUserTakeTestAsync(userId, testTypeId);
+                var timeUntilNext = await GetTimeUntilNextAttemptAsync(userId, testTypeId);
+
+                return new
+                {
+                    canTakeTest = canTakeTest,
+                    timeUntilNext = timeUntilNext?.TotalMilliseconds,
+                    message = canTakeTest ? "Test available" : $"Please wait {timeUntilNext?.Hours}h {timeUntilNext?.Minutes}m before retaking this test"
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error checking test availability for user {UserId}, test {TestTypeId}", userId, testTypeId);
+                throw;
+            }
+        }
+
+        // Submit test answers
+        public async Task<TestResultDto> SubmitTestAnswersAsync(int userId, SubmitAnswersDto submitDto)
+        {
+            return await SubmitTestAsync(userId, submitDto);
+        }
+
+        // Get test statistics
+        public async Task<TestStatsDto> GetTestStatsAsync(string testTypeId)
+        {
+            try
+            {
+                var testType = await GetTestTypeByIdAsync(testTypeId);
+                if (testType == null)
+                {
+                    throw new KeyNotFoundException($"Test type not found: {testTypeId}");
+                }
+
+                // Get total number of tests completed for this type
+                var dbTestTypeId = GetDbTestTypeId(testTypeId);
+                var totalTests = await _context.TestResults
+                    .Where(tr => tr.TestTypeId == dbTestTypeId)
+                    .CountAsync();
+
+                // Get average score
+                var avgScore = await _context.TestResults
+                    .Where(tr => tr.TestTypeId == dbTestTypeId)
+                    .AverageAsync(tr => (double?)tr.Score) ?? 0;
+
+                // Get highest score
+                var highestScore = await _context.TestResults
+                    .Where(tr => tr.TestTypeId == dbTestTypeId)
+                    .MaxAsync(tr => (int?)tr.Score) ?? 0;
+
+                return new TestStatsDto
+                {
+                    TestTypeId = testTypeId,
+                    TestTitle = testType.Title,
+                    TotalTestsTaken = totalTests,
+                    AverageScore = avgScore,
+                    HighestScore = highestScore,
+                    Difficulty = testType.Stats.Difficulty,
+                    TimeLimit = testType.Stats.TimeLimit,
+                    QuestionCount = testType.QuestionCount
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting test stats for test type {TestTypeId}", testTypeId);
                 throw;
             }
         }

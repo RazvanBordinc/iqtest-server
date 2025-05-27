@@ -16,9 +16,9 @@ namespace IqTest_server.Controllers
     public class TestController : BaseController
     {
         private readonly TestService _testService;
-        private readonly ILogger<TestController> _logger;
+        private new readonly ILogger<TestController> _logger;
 
-        public TestController(TestService testService, ILogger<TestController> logger)
+        public TestController(TestService testService, ILogger<TestController> logger) : base(logger)
         {
             _testService = testService;
             _logger = logger;
