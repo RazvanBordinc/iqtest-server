@@ -474,6 +474,7 @@ catch (Exception ex)
     redisOptions.EndPoints.Clear();
     redisOptions.EndPoints.Add("localhost", 6379);
 }
+} // End if (!skipRedis)
 
 // Use null multiplexer when Redis is disabled, real multiplexer otherwise  
 if (skipRedis)
