@@ -154,5 +154,24 @@ namespace IqTest_server.Controllers
                 return StatusCode(500, new { message = "An error occurred while retrieving test statistics" });
             }
         }
+
+        // POST: api/test/clear-cooldowns (admin endpoint for debugging)
+        [HttpPost("clear-cooldowns")]
+        [Authorize]
+        public async Task<IActionResult> ClearUserCooldowns()
+        {
+            try
+            {
+                var userId = GetUserId();
+                await _testService.ClearUserTestCooldownsAsync(userId);
+                _logger.LogInformation("Cleared test cooldowns for user {UserId}", userId);
+                return Ok(new { message = "Test cooldowns cleared successfully" });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error clearing test cooldowns for user {UserId}", GetUserId());
+                return StatusCode(500, new { message = "An error occurred while clearing test cooldowns" });
+            }
+        }
     }
 }

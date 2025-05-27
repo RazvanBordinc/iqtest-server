@@ -48,7 +48,7 @@ namespace IqTest_server.Services
                 _database = redis.GetDatabase();
                 // Test connection
                 var ping = _database.Ping();
-                _logger.LogInformation("Redis connection established successfully. Ping: {Ping}ms", ping.TotalMilliseconds);
+                _logger.LogInformation("RedisService constructor: Redis connection established successfully. Ping: {Ping}ms", ping.TotalMilliseconds);
                 _isRedisAvailable = true;
                 
                 // Determine if we're using Upstash Redis
@@ -177,6 +177,7 @@ namespace IqTest_server.Services
                 cancellationToken.ThrowIfCancellationRequested();
                 
                 // Log Redis operation
+                _logger.LogInformation("RedisService: Starting GET operation for key {Key}, returnType: {ReturnType}", key, returnType);
                 _loggingService.LogDebug($"Redis GET: {key}", new Dictionary<string, object>
                 {
                     { "operation", "GET" },
@@ -228,6 +229,7 @@ namespace IqTest_server.Services
                 if (value.IsNullOrEmpty)
                 {
                     // Log cache miss
+                    _logger.LogInformation("RedisService: GET miss for key {Key} - value not found", key);
                     _loggingService.LogDebug($"Redis GET miss: {key}", new Dictionary<string, object>
                     {
                         { "operation", "GET" },
@@ -244,6 +246,7 @@ namespace IqTest_server.Services
                 var valueSize = value.ToString().Length;
                 
                 // Log cache hit
+                _logger.LogInformation("RedisService: GET hit for key {Key} - value found, size: {Size} bytes", key, valueSize);
                 _loggingService.LogDebug($"Redis GET hit: {key}", new Dictionary<string, object>
                 {
                     { "operation", "GET" },

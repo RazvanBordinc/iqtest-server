@@ -63,11 +63,13 @@ namespace IqTest_server.Services
             {
                 if (userId <= 0) // Anonymous user or invalid user
                 {
+                    _logger.LogInformation("User {UserId} is anonymous/invalid - allowing test {TestTypeId}", userId, testTypeId);
                     return true;
                 }
                 
                 // Use cache key with user ID and test type
                 var key = $"test_attempt:{userId}:{testTypeId}";
+                _logger.LogInformation("Checking test availability for user {UserId}, test {TestTypeId}, key: {Key}", userId, testTypeId, key);
                 
                 // Try to get from cache with timeout
                 Task<DateTime?> getTask = _redisService.GetAsync<DateTime?>(key);
@@ -75,7 +77,7 @@ namespace IqTest_server.Services
                 // Add a timeout to the Redis operation
                 if (await Task.WhenAny(getTask, Task.Delay(2000, cancellationToken)) != getTask)
                 {
-                    _logger.LogWarning("Redis GetAsync timed out for user {UserId}, test {TestTypeId}", userId, testTypeId);
+                    _logger.LogWarning("Redis GetAsync timed out for user {UserId}, test {TestTypeId} - allowing test", userId, testTypeId);
                     return true; // Default to allowing the test on timeout
                 }
                 
@@ -84,20 +86,25 @@ namespace IqTest_server.Services
                 
                 if (!lastAttempt.HasValue)
                 {
+                    _logger.LogInformation("No previous attempt found for user {UserId}, test {TestTypeId} - allowing test", userId, testTypeId);
                     return true; // No previous attempt
                 }
                 
                 var timeSinceLastAttempt = DateTime.UtcNow - lastAttempt.Value;
-                return timeSinceLastAttempt.TotalHours >= 24;
+                var canTake = timeSinceLastAttempt.TotalHours >= 24;
+                _logger.LogInformation("User {UserId} last took test {TestTypeId} {HoursAgo:F2} hours ago - {Result}", 
+                    userId, testTypeId, timeSinceLastAttempt.TotalHours, canTake ? "ALLOWED" : "BLOCKED");
+                
+                return canTake;
             }
             catch (System.Threading.Tasks.TaskCanceledException)
             {
-                _logger.LogWarning("CanUserTakeTest canceled for user {UserId}, test {TestTypeId}", userId, testTypeId);
+                _logger.LogWarning("CanUserTakeTest canceled for user {UserId}, test {TestTypeId} - allowing test", userId, testTypeId);
                 return true; // Allow test if canceled
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error checking if user {UserId} can take test {TestTypeId}", userId, testTypeId);
+                _logger.LogError(ex, "Error checking if user {UserId} can take test {TestTypeId} - allowing test", userId, testTypeId);
                 return true; // Allow test in case of error
             }
         }
@@ -659,15 +666,22 @@ namespace IqTest_server.Services
         {
             try
             {
+                _logger.LogInformation("=== CheckTestAvailabilityAsync called for user {UserId}, test {TestTypeId} ===", userId, testTypeId);
+                
                 var canTakeTest = await CanUserTakeTestAsync(userId, testTypeId);
                 var timeUntilNext = await GetTimeUntilNextAttemptAsync(userId, testTypeId);
 
-                return new
+                var result = new
                 {
                     canTakeTest = canTakeTest,
                     timeUntilNext = timeUntilNext?.TotalMilliseconds,
                     message = canTakeTest ? "Test available" : $"Please wait {timeUntilNext?.Hours}h {timeUntilNext?.Minutes}m before retaking this test"
                 };
+                
+                _logger.LogInformation("=== Returning test availability: canTakeTest={CanTake}, timeUntilNext={TimeMs}ms ===", 
+                    result.canTakeTest, result.timeUntilNext);
+                
+                return result;
             }
             catch (Exception ex)
             {
