@@ -259,18 +259,38 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 // SIMPLIFIED CORS policy that addresses the remote hosting issues
 builder.Services.AddCors(options =>
 {
-    // For API requests with credentials
-    options.AddPolicy("AllowedOrigins", policy =>
+    // Default policy for most endpoints (with credentials)
+    options.AddDefaultPolicy(policy =>
     {
         policy.WithOrigins(
-                "https://iqtest-app.vercel.app", 
+                "https://iqtest-app.vercel.app",
+                "https://iqtest-app-*.vercel.app", // Vercel preview deployments
                 "https://iqtest-server-tkhl.onrender.com",
                 "http://localhost:3000",
                 "https://localhost:3000"
              )
+             .SetIsOriginAllowedToAllowWildcardSubdomains()
              .AllowAnyMethod()
              .AllowAnyHeader()
-             .AllowCredentials();
+             .AllowCredentials()
+             .SetPreflightMaxAge(TimeSpan.FromSeconds(86400)); // Cache preflight for 24 hours
+    });
+    
+    // For API requests with credentials (same as default)
+    options.AddPolicy("AllowedOrigins", policy =>
+    {
+        policy.WithOrigins(
+                "https://iqtest-app.vercel.app",
+                "https://iqtest-app-*.vercel.app", // Vercel preview deployments
+                "https://iqtest-server-tkhl.onrender.com",
+                "http://localhost:3000",
+                "https://localhost:3000"
+             )
+             .SetIsOriginAllowedToAllowWildcardSubdomains()
+             .AllowAnyMethod()
+             .AllowAnyHeader()
+             .AllowCredentials()
+             .SetPreflightMaxAge(TimeSpan.FromSeconds(86400));
     });
     
     // For health checks and preflight requests
@@ -731,30 +751,26 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-// Early exit for OPTIONS requests and health endpoints
+// Early exit for health endpoints to improve performance
 app.Use(async (context, next) =>
 {
-    // Handle OPTIONS requests immediately for better performance
-    if (context.Request.Method == "OPTIONS")
-    {
-        context.Response.Headers["Access-Control-Allow-Origin"] = "*";
-        context.Response.Headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS";
-        context.Response.Headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization";
-        context.Response.Headers["Access-Control-Max-Age"] = "86400"; // 24 hours
-        context.Response.StatusCode = 204;
-        return;
-    }
-    
     var path = context.Request.Path.Value?.ToLower();
     if (path == "/api/health" || path == "/api/health/ping" || path == "/api/health/wake")
     {
-        // Skip all middleware for health endpoints
+        // For health endpoints, we don't need credentials, so we can use wildcard
+        if (context.Request.Method == "OPTIONS")
+        {
+            context.Response.Headers["Access-Control-Allow-Origin"] = "*";
+            context.Response.Headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS";
+            context.Response.Headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization";
+            context.Response.Headers["Access-Control-Max-Age"] = "86400";
+            context.Response.StatusCode = 204;
+            return;
+        }
+        
+        // Add CORS headers for actual requests
         context.Response.Headers["Access-Control-Allow-Origin"] = "*";
         context.Response.Headers["Cache-Control"] = "no-cache, no-store, must-revalidate";
-        
-        // Let the controller handle the response
-        await next();
-        return;
     }
     
     await next();
