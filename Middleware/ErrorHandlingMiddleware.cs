@@ -23,6 +23,13 @@ namespace IqTest_server.Middleware
 
         public async Task InvokeAsync(HttpContext context)
         {
+            // Skip error handling for OPTIONS requests (CORS preflight)
+            if (context.Request.Method == "OPTIONS")
+            {
+                await _next(context);
+                return;
+            }
+            
             try
             {
                 await _next(context);

@@ -192,33 +192,37 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
  
 
 
-// SIMPLIFIED CORS policy that addresses the remote hosting issues
+// CORS configuration - MUST be configured before building the app
 builder.Services.AddCors(options =>
 {
-    // Default policy for most endpoints (with credentials)
     options.AddDefaultPolicy(policy =>
     {
+        // Use SetIsOriginAllowed for dynamic origin validation
         policy.SetIsOriginAllowed(origin =>
             {
-                // Allow any localhost origin
+                // Allow localhost origins (development)
                 if (origin.StartsWith("http://localhost:") || origin.StartsWith("https://localhost:"))
                     return true;
-                    
+                
                 // Allow specific production domains
                 if (origin == "https://iqtest-app.vercel.app" || 
                     origin == "https://iqtest-server-tkhl.onrender.com")
                     return true;
-                    
-                // Allow Vercel preview deployments
+                
+                // Allow any Vercel app (including preview deployments)
                 if (origin.StartsWith("https://") && origin.EndsWith(".vercel.app"))
                     return true;
-                    
+                
+                // Log rejected origins for debugging
+                var logger = builder.Services.BuildServiceProvider().GetService<ILogger<Program>>();
+                logger?.LogWarning("CORS: Rejected origin {Origin}", origin);
+                
                 return false;
             })
             .AllowCredentials()
             .AllowAnyMethod()
             .AllowAnyHeader()
-            .WithExposedHeaders("X-Total-Count")
+            .WithExposedHeaders("X-Total-Count", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset")
             .SetPreflightMaxAge(TimeSpan.FromMinutes(10));
     });
     
@@ -418,23 +422,37 @@ app.UseMiddleware<SecurityHeadersMiddleware>();
 // CORS - MUST be before authentication and authorization
 app.UseCors();
 
-// Handle OPTIONS requests explicitly for CORS preflight - AFTER CORS middleware
+// Fallback CORS handler - ensures CORS headers are present for all requests
 app.Use(async (context, next) =>
 {
-    // Log CORS-related information
-    var origin = context.Request.Headers["Origin"].FirstOrDefault();
-    var method = context.Request.Method;
-    var path = context.Request.Path;
-    
-    if (method == "OPTIONS")
+    // Only add headers if they're missing
+    if (!context.Response.Headers.ContainsKey("Access-Control-Allow-Origin"))
     {
-        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
-        logger.LogInformation("Handling OPTIONS preflight request from {Origin} for {Path}", origin, path);
-        
-        // CORS headers should already be set by UseCors middleware
-        context.Response.StatusCode = 200;
-        await context.Response.CompleteAsync();
-        return;
+        var origin = context.Request.Headers["Origin"].FirstOrDefault();
+        if (!string.IsNullOrEmpty(origin))
+        {
+            // Validate origin
+            bool isAllowed = origin.StartsWith("http://localhost:") || 
+                           origin.StartsWith("https://localhost:") ||
+                           origin == "https://iqtest-app.vercel.app" ||
+                           origin == "https://iqtest-server-tkhl.onrender.com" ||
+                           (origin.StartsWith("https://") && origin.EndsWith(".vercel.app"));
+            
+            if (isAllowed)
+            {
+                context.Response.Headers["Access-Control-Allow-Origin"] = origin;
+                context.Response.Headers["Access-Control-Allow-Credentials"] = "true";
+                
+                if (context.Request.Method == "OPTIONS")
+                {
+                    context.Response.Headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS";
+                    context.Response.Headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With";
+                    context.Response.Headers["Access-Control-Max-Age"] = "600";
+                    context.Response.StatusCode = 200;
+                    return;
+                }
+            }
+        }
     }
     
     await next();
