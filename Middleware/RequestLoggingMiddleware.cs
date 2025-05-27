@@ -45,9 +45,11 @@ namespace IqTest_server.Middleware
         
         public async Task InvokeAsync(HttpContext context)
         {
-            // Don't log health checks
+            // Skip logging for health checks and static files
             if (context.Request.Path.StartsWithSegments("/health") || 
-                context.Request.Path.StartsWithSegments("/api/health"))
+                context.Request.Path.StartsWithSegments("/api/health") ||
+                context.Request.Path.StartsWithSegments("/swagger") ||
+                context.Request.Path.Value.Contains("."))
             {
                 await _next(context);
                 return;
@@ -79,35 +81,8 @@ namespace IqTest_server.Middleware
                 }
             }
             
-            // Log the incoming request
+            // Log the incoming request (without body)
             _loggingService.LogInfo($"HTTP Request: {requestMethod} {requestPath}", metadata);
-            
-            // Read and log the request body for non-GET requests (except sensitive paths)
-            if (requestMethod != "GET" && !IsSensitivePath(requestPath) && context.Request.ContentLength > 0)
-            {
-                context.Request.EnableBuffering();
-                
-                using (var requestStream = _recyclableMemoryStreamManager.GetStream())
-                {
-                    await context.Request.Body.CopyToAsync(requestStream);
-                    context.Request.Body.Position = 0;
-                    
-                    var requestBody = await new StreamReader(requestStream, Encoding.UTF8, leaveOpen: true)
-                        .ReadToEndAsync();
-                    requestStream.Position = 0;
-                    
-                    if (!string.IsNullOrEmpty(requestBody) && requestBody.Length < 4000) // Limit large payloads
-                    {
-                        metadata["requestBody"] = SanitizePayload(requestBody, requestPath);
-                        _loggingService.LogDebug($"Request body for {requestMethod} {requestPath}", metadata);
-                    }
-                }
-            }
-            
-            // Capture the response body
-            var originalBodyStream = context.Response.Body;
-            using var responseBodyStream = _recyclableMemoryStreamManager.GetStream();
-            context.Response.Body = responseBodyStream;
             
             Exception exception = null;
             
@@ -122,39 +97,14 @@ namespace IqTest_server.Middleware
             }
             finally
             {
-                responseBodyStream.Position = 0;
                 stopwatch.Stop();
-                
-                // Don't log response bodies for health checks and similar endpoints
-                bool shouldLogResponseBody = 
-                    context.Response.StatusCode != StatusCodes.Status204NoContent &&
-                    !IsSensitivePath(requestPath) &&
-                    context.Response.ContentType?.Contains("application/json") == true &&
-                    responseBodyStream.Length > 0 && responseBodyStream.Length < 4000; // Limit large responses
                 
                 // Prepare response metadata
                 var responseMetadata = new Dictionary<string, object>(metadata)
                 {
                     { "statusCode", context.Response.StatusCode },
-                    { "duration", stopwatch.ElapsedMilliseconds },
-                    { "contentType", context.Response.ContentType },
-                    { "contentLength", responseBodyStream.Length }
+                    { "duration", stopwatch.ElapsedMilliseconds }
                 };
-                
-                // Log response body for certain responses
-                if (shouldLogResponseBody)
-                {
-                    responseBodyStream.Position = 0;
-                    var responseBody = await new StreamReader(responseBodyStream, Encoding.UTF8, leaveOpen: true)
-                        .ReadToEndAsync();
-                    responseBodyStream.Position = 0;
-                    
-                    // Only log response body content if it's not empty and not sensitive
-                    if (!string.IsNullOrWhiteSpace(responseBody))
-                    {
-                        responseMetadata["responseBody"] = SanitizePayload(responseBody, requestPath);
-                    }
-                }
                 
                 // Choose log level based on status code
                 var logLevel = context.Response.StatusCode >= 500 
@@ -165,21 +115,22 @@ namespace IqTest_server.Middleware
                 if (exception != null)
                 {
                     responseMetadata["exception"] = exception.Message;
-                    responseMetadata["stackTrace"] = exception.StackTrace;
                     _loggingService.Log(LogLevel.Error, 
                         $"HTTP Response: {requestMethod} {requestPath} failed with {context.Response.StatusCode} after {stopwatch.ElapsedMilliseconds}ms",
                         responseMetadata);
                 }
-                else
+                else if (stopwatch.ElapsedMilliseconds > 1000) // Only log slow requests
+                {
+                    _loggingService.Log(LogLevel.Warning, 
+                        $"Slow HTTP Response: {requestMethod} {requestPath} completed with {context.Response.StatusCode} in {stopwatch.ElapsedMilliseconds}ms",
+                        responseMetadata);
+                }
+                else if (context.Response.StatusCode >= 400) // Log errors
                 {
                     _loggingService.Log(logLevel, 
                         $"HTTP Response: {requestMethod} {requestPath} completed with {context.Response.StatusCode} in {stopwatch.ElapsedMilliseconds}ms",
                         responseMetadata);
                 }
-                
-                // Copy the response body back to the original stream
-                responseBodyStream.Position = 0;
-                await responseBodyStream.CopyToAsync(originalBodyStream);
             }
         }
         

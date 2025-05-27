@@ -35,15 +35,10 @@ namespace IqTest_server.Services
 
         public async Task<List<TestTypeDto>> GetAllTestTypesAsync()
         {
-            try
+            return await _cacheService.GetOrCreateAsync(CacheKeys.AllTestTypes, async () =>
             {
-                return TestTypeData.GetAllTestTypes();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error retrieving all test types");
-                throw;
-            }
+                return await Task.FromResult(TestTypeData.GetAllTestTypes());
+            }, CacheService.LongCacheDuration);
         }
 
         public async Task<TestTypeDto> GetTestTypeByIdAsync(string testTypeId)
@@ -382,6 +377,10 @@ namespace IqTest_server.Services
                 }
 
                 await _context.SaveChangesAsync();
+                
+                // Invalidate cache for leaderboard
+                _cacheService.RemoveByPrefix(CacheKeys.LeaderboardPrefix);
+                _cacheService.RemoveByPrefix(CacheKeys.UserRankPrefix);
             }
             catch (Exception ex)
             {

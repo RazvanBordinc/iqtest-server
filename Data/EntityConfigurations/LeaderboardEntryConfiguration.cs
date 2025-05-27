@@ -23,6 +23,18 @@ namespace IqTest_server.Data.EntityConfigurations
             // Create unique constraint for user and test type combination
             builder.HasIndex(l => new { l.UserId, l.TestTypeId })
                 .IsUnique();
+
+            // Performance indexes
+            builder.HasIndex(l => new { l.TestTypeId, l.Score })
+                .HasDatabaseName("IX_LeaderboardEntries_TestTypeId_Score_DESC")
+                .IsDescending(false, true);
+
+            builder.HasIndex(l => l.Score)
+                .HasDatabaseName("IX_LeaderboardEntries_Score_DESC")
+                .IsDescending();
+
+            builder.HasIndex(l => l.LastUpdated)
+                .HasDatabaseName("IX_LeaderboardEntries_LastUpdated");
         }
     }
 }

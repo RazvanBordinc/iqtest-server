@@ -13,56 +13,51 @@ namespace IqTest_server.Services
     {
         private readonly ApplicationDbContext _context;
         private readonly ILogger<LeaderboardService> _logger;
-        private readonly RedisService _redisService;
+        private readonly ICacheService _cacheService;
 
-        public LeaderboardService(ApplicationDbContext context, ILogger<LeaderboardService> logger, RedisService redisService)
+        public LeaderboardService(ApplicationDbContext context, ILogger<LeaderboardService> logger, ICacheService cacheService)
         {
             _context = context;
             _logger = logger;
-            _redisService = redisService;
+            _cacheService = cacheService;
         }
 
         public async Task<int> GetTestTypeCompletedCountAsync(string testTypeId)
         {
             var cacheKey = $"test_completed_count:{testTypeId}";
-            var cachedCount = await _redisService.GetAsync<string>(cacheKey);
             
-            if (!string.IsNullOrEmpty(cachedCount) && int.TryParse(cachedCount, out var count))
+            return await _cacheService.GetOrCreateAsync(cacheKey, async () =>
             {
-                return count;
-            }
-            
-            var testType = await _context.TestTypes.FirstOrDefaultAsync(t => t.TypeId == testTypeId);
-            if (testType == null) return 0;
-            
-            count = await _context.TestResults
-                .Where(tr => tr.TestTypeId == testType.Id)
-                .CountAsync();
-            
-            await _redisService.SetAsync(cacheKey, count.ToString(), TimeSpan.FromMinutes(5));
-            return count;
+                var testType = await _context.TestTypes
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(t => t.TypeId == testTypeId);
+                
+                if (testType == null) return 0;
+                
+                return await _context.TestResults
+                    .Where(tr => tr.TestTypeId == testType.Id)
+                    .CountAsync();
+            }, CacheService.MediumCacheDuration);
         }
         
         public async Task<int> GetTotalUsersCountAsync()
         {
             var cacheKey = "total_users_count";
-            var cachedCount = await _redisService.GetAsync<string>(cacheKey);
             
-            if (!string.IsNullOrEmpty(cachedCount) && int.TryParse(cachedCount, out var count))
+            return await _cacheService.GetOrCreateAsync(cacheKey, async () =>
             {
-                return count;
-            }
-            
-            count = await _context.Users.CountAsync();
-            await _redisService.SetAsync(cacheKey, count.ToString(), TimeSpan.FromMinutes(5));
-            return count;
+                return await _context.Users.CountAsync();
+            }, CacheService.MediumCacheDuration);
         }
 
         public async Task<List<LeaderboardEntryDto>> GetTestTypeLeaderboardAsync(string testTypeId, int page = 1, int pageSize = 10)
         {
-            try
+            var cacheKey = CacheKeys.TestLeaderboard(_context.TestTypes.AsNoTracking().FirstOrDefault(t => t.TypeId == testTypeId)?.Id ?? 0, page, pageSize);
+            
+            return await _cacheService.GetOrCreateAsync(cacheKey, async () =>
             {
                 var testType = await _context.TestTypes
+                    .AsNoTracking()
                     .FirstOrDefaultAsync(t => t.TypeId == testTypeId);
 
                 if (testType == null)
@@ -77,6 +72,8 @@ namespace IqTest_server.Services
                 try
                 {
                     var entries = await _context.LeaderboardEntries
+                        .AsNoTracking()
+                        .Include(l => l.User)
                         .Where(l => l.TestTypeId == testType.Id)
                         .OrderByDescending(l => l.Score)
                         .Skip(skip)
@@ -122,19 +119,17 @@ namespace IqTest_server.Services
                         .ToListAsync();
                     return entries;
                 }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error retrieving leaderboard for test type: {TestTypeId}", testTypeId);
-                throw;
-            }
+            }, CacheService.MediumCacheDuration);
         }
 
         public async Task<UserRankingDto> GetUserRankingAsync(int userId)
         {
-            try
+            var cacheKey = CacheKeys.UserRanking(userId);
+            
+            return await _cacheService.GetOrCreateAsync(cacheKey, async () =>
             {
                 var user = await _context.Users
+                    .AsNoTracking()
                     .FirstOrDefaultAsync(u => u.Id == userId);
 
                 if (user == null)
@@ -145,6 +140,7 @@ namespace IqTest_server.Services
 
                 // Get user's entries in all test types
                 var entries = await _context.LeaderboardEntries
+                    .AsNoTracking()
                     .Where(l => l.UserId == userId)
                     .Include(l => l.TestType)
                     .ToListAsync();
@@ -175,28 +171,27 @@ namespace IqTest_server.Services
                     IqScore = iqScore,
                     TestResults = testResults
                 };
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error retrieving ranking for user: {UserId}", userId);
-                throw;
-            }
+            }, CacheService.ShortCacheDuration);
         }
 
         private async Task<int> CalculateGlobalRankAsync(int userId)
         {
-            // Calculate user's average score across all test types
+            // Use a more efficient query with proper indexing
             var userAvgScore = await _context.LeaderboardEntries
+                .AsNoTracking()
                 .Where(l => l.UserId == userId)
                 .AverageAsync(l => (double?)l.Score) ?? 0;
 
-            // Count users with higher average scores
-            var betterScoresCount = await _context.LeaderboardEntries
-                .GroupBy(l => l.UserId)
-                .Select(g => new { UserId = g.Key, AvgScore = g.Average(l => l.Score) })
-                .CountAsync(x => x.AvgScore > userAvgScore);
+            if (userAvgScore == 0) return int.MaxValue;
 
-            return betterScoresCount + 1; // +1 because rank is 1-based
+            // More efficient query using LINQ
+            var betterScoresCount = await _context.LeaderboardEntries
+                .AsNoTracking()
+                .GroupBy(l => l.UserId)
+                .Select(g => g.Average(l => l.Score))
+                .CountAsync(avgScore => avgScore > userAvgScore);
+
+            return betterScoresCount + 1;
         }
 
         private async Task<float> CalculateGlobalPercentileAsync(int userId)

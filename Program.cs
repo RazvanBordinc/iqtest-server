@@ -276,14 +276,14 @@ builder.Services.AddStackExchangeRedisCache(options =>
 var redisOptions = new ConfigurationOptions
 {
     AbortOnConnectFail = false, // Don't fail if Redis is temporarily unavailable
-    ConnectRetry = Environment.GetEnvironmentVariable("RENDER_SERVICE_ID") != null ? 3 : 10, // Fewer retries on Render
-    ConnectTimeout = Environment.GetEnvironmentVariable("RENDER_SERVICE_ID") != null ? 5000 : 30000, // Shorter timeout on Render
+    ConnectRetry = 2, // Reduced retries
+    ConnectTimeout = 2000, // 2 second timeout
     Password = "", // Will be set below if present in connection string
     Ssl = false, // Will be set to true for Upstash Redis
-    SyncTimeout = Environment.GetEnvironmentVariable("RENDER_SERVICE_ID") != null ? 5000 : 30000, // Shorter timeout on Render
-    AsyncTimeout = Environment.GetEnvironmentVariable("RENDER_SERVICE_ID") != null ? 5000 : 30000, // Shorter timeout on Render
+    SyncTimeout = 2000, // 2 second timeout
+    AsyncTimeout = 2000, // 2 second timeout
     KeepAlive = 60, // Add keep-alive option (seconds)
-    ReconnectRetryPolicy = new LinearRetry(2000), // Simple linear retry with 2 second delay
+    ReconnectRetryPolicy = new LinearRetry(1000), // Simple linear retry with 1 second delay
     DefaultDatabase = 0,
     AllowAdmin = false, // Security: disable admin commands
     CommandMap = CommandMap.Default // Use default command map
@@ -503,9 +503,13 @@ builder.Services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(sp =>
     }
 });
 
+// Add memory caching
+builder.Services.AddMemoryCache();
+
 // Services
 builder.Services.AddSingleton<PasswordHasher>();
 builder.Services.AddSingleton<JwtHelper>();
+builder.Services.AddSingleton<ICacheService, CacheService>();
 builder.Services.AddScoped<AuthService>();
 builder.Services.AddScoped<QuestionService>();
 builder.Services.AddScoped<TestService>();
@@ -627,7 +631,8 @@ static string MaskConnectionString(string connectionString)
         System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 }
 
-// Apply migrations and seed database in all environments
+// Database migration is now handled separately - not on startup
+// This improves startup performance and prevents migration conflicts in scaled environments
 using (var scope = app.Services.CreateScope())
 {
     var services = scope.ServiceProvider;
@@ -637,73 +642,24 @@ using (var scope = app.Services.CreateScope())
     {
         var context = services.GetRequiredService<ApplicationDbContext>();
         
-        // Apply migrations - this will create database if needed
-        logger.LogInformation("Applying database migrations...");
-        context.Database.Migrate();
-            logger.LogInformation("Database migrations completed successfully");
-        }
-        catch (Microsoft.Data.SqlClient.SqlException sqlEx) 
+        // Only check if database can connect, don't run migrations
+        logger.LogInformation("Checking database connection...");
+        var canConnect = await context.Database.CanConnectAsync();
+        if (canConnect)
         {
-            logger.LogWarning($"SQL Exception during migration: {sqlEx.Message}");
-            
-            // Handle specific SQL exceptions
-            if (sqlEx.Message.Contains("Invalid column name 'Country'"))
-            {
-                logger.LogWarning("Country column issue detected, attempting to fix...");
-                
-                try
-                {
-                    var context = services.GetRequiredService<ApplicationDbContext>();
-                    // Execute raw SQL to add the column if it doesn't exist
-                    context.Database.ExecuteSqlRaw(@"
-                        IF NOT EXISTS (
-                            SELECT 1 
-                            FROM sys.columns 
-                            WHERE object_id = OBJECT_ID(N'[dbo].[LeaderboardEntries]') 
-                            AND name = 'Country'
-                        )
-                        BEGIN
-                            ALTER TABLE [dbo].[LeaderboardEntries] 
-                            ADD [Country] nvarchar(100) NOT NULL DEFAULT N'United States';
-                        END");
-                    
-                    // Try migrations again
-                    context.Database.Migrate();
-                    logger.LogInformation("Country column issue resolved");
-                }
-                catch (Exception columnEx)
-                {
-                    logger.LogError(columnEx, "Failed to fix Country column issue");
-                }
-            }
-            else if (sqlEx.Message.Contains("Database") && sqlEx.Message.Contains("already exists"))
-            {
-                logger.LogWarning("Database already exists, continuing with existing database");
-                
-                // Try to apply any pending migrations
-                try
-                {
-                    var context = services.GetRequiredService<ApplicationDbContext>();
-                    context.Database.Migrate();
-                    logger.LogInformation("Pending migrations applied successfully");
-                }
-                catch (Exception migrationEx)
-                {
-                    logger.LogError(migrationEx, "Failed to apply pending migrations");
-                }
-            }
-            else
-            {
-                logger.LogError(sqlEx, "SQL error during database setup");
-                throw;
-            }
+            logger.LogInformation("Database connection successful");
         }
-        catch (Exception ex)
+        else
         {
-            logger.LogError(ex, "An error occurred during database setup");
-            throw;
+            logger.LogWarning("Cannot connect to database - application may have limited functionality");
         }
     }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Error checking database connection");
+        // Continue running even if database is not available
+    }
+}
 
 // Configure the HTTP request pipeline
 if (app.Environment.IsDevelopment())

@@ -11,20 +11,25 @@ namespace IqTest_server.Services
         private readonly ILogger<QuestionService> _logger;
         private readonly QuestionGeneratorService _questionGenerator;
         private readonly GithubService _githubService;
+        private readonly ICacheService _cacheService;
 
         public QuestionService(
             ILogger<QuestionService> logger,
             QuestionGeneratorService questionGenerator,
-            GithubService githubService)
+            GithubService githubService,
+            ICacheService cacheService)
         {
             _logger = logger;
             _questionGenerator = questionGenerator;
             _githubService = githubService;
+            _cacheService = cacheService;
         }
 
         public async Task<IEnumerable<QuestionDto>> GetQuestionsByTestTypeIdAsync(string testTypeId)
         {
-            try
+            var cacheKey = CacheKeys.Questions(GetDbTestTypeId(testTypeId));
+            
+            return await _cacheService.GetOrCreateAsync(cacheKey, async () =>
             {
                 // Get the correct question count for each test type
                 int questionCount = GetQuestionCount(testTypeId);
@@ -66,12 +71,7 @@ namespace IqTest_server.Services
                 _logger.LogInformation("Generated {Count} questions for test type: {TestTypeId}", generatedQuestions.Count, testTypeId);
 
                 return generatedQuestions;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error retrieving questions for test type: {TestTypeId}", testTypeId);
-                throw;
-            }
+            }, CacheService.LongCacheDuration);
         }
 
         public async Task<QuestionDto> GetQuestionByIdAsync(int questionId)
@@ -93,7 +93,9 @@ namespace IqTest_server.Services
         // Get the correct answers for a set of questions (for internal use only)
         public async Task<Dictionary<int, string>> GetCorrectAnswersAsync(string testTypeId)
         {
-            try
+            var cacheKey = $"answers:{testTypeId}";
+            
+            return await _cacheService.GetOrCreateAsync(cacheKey, async () =>
             {
                 int questionCount = GetQuestionCount(testTypeId);
                 var questionItems = await _githubService.GetQuestionsAsync(testTypeId, questionCount);
@@ -111,12 +113,7 @@ namespace IqTest_server.Services
                 }
 
                 return correctAnswers;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error retrieving correct answers for test type: {TestTypeId}", testTypeId);
-                return new Dictionary<int, string>();
-            }
+            }, CacheService.LongCacheDuration);
         }
 
         // Get question weights (for scoring)
@@ -157,6 +154,18 @@ namespace IqTest_server.Services
                 "memory" => 20,
                 "mixed" => 40,
                 _ => 20
+            };
+        }
+        
+        private int GetDbTestTypeId(string testTypeId)
+        {
+            return testTypeId switch
+            {
+                "number-logic" => 1,
+                "word-logic" => 2,
+                "memory" => 3,
+                "mixed" => 4,
+                _ => throw new ArgumentException($"Unknown test type: {testTypeId}")
             };
         }
     }
