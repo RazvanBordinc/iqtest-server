@@ -305,22 +305,13 @@ builder.Services.AddCors(options =>
 // Get Redis connection string first
 var redisConnectionString = builder.Configuration["Redis:ConnectionString"] ?? "localhost:6379";
 
-// Skip Redis in production for faster startup if not configured
-var skipRedis = builder.Environment.IsProduction() && redisConnectionString == "localhost:6379";
-
-// Redis for caching and rate limiting - only if not skipped
-if (!skipRedis)
+// Redis for caching and rate limiting
+builder.Services.AddStackExchangeRedisCache(options =>
 {
-    builder.Services.AddStackExchangeRedisCache(options =>
-    {
-        options.Configuration = redisConnectionString; // Use the same connection string
-        options.InstanceName = "IqTest";
-    });
-}
+    options.Configuration = redisConnectionString; // Use the same connection string
+    options.InstanceName = "IqTest";
+});
 
-// Add Redis connection multiplexer with resilient configuration
-if (!skipRedis)
-{
 // Create Redis configuration options programmatically instead of parsing
 var redisOptions = new ConfigurationOptions
 {
@@ -474,71 +465,69 @@ catch (Exception ex)
     redisOptions.EndPoints.Clear();
     redisOptions.EndPoints.Add("localhost", 6379);
 }
-} // End if (!skipRedis)
 
-// Use null multiplexer when Redis is disabled, real multiplexer otherwise  
-if (skipRedis)
+builder.Services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(sp =>
 {
-    builder.Services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(sp =>
+    try
     {
         var serviceLogger = sp.GetRequiredService<ILogger<Program>>();
-        serviceLogger.LogInformation("Redis is disabled for production startup optimization. Using null multiplexer.");
-        return new IqTest_server.Services.NullConnectionMultiplexer();
-    });
-}
-else
-{
-    builder.Services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(sp =>
+        // Format endpoints manually with correct type casting for DnsEndPoint
+        string endpoints = string.Join(", ", redisOptions.EndPoints.Select(ep => {
+            if (ep is System.Net.DnsEndPoint dnsEp)
+                return $"{dnsEp.Host}:{dnsEp.Port}";
+            else if (ep is System.Net.IPEndPoint ipEp)
+                return $"{ipEp.Address}:{ipEp.Port}";
+            else
+                return ep.ToString();
+        }));
+            
+        serviceLogger.LogInformation("Attempting to connect to Redis with the following settings: " +
+            $"Endpoints: {endpoints} " +
+            $"ConnectTimeout: {redisOptions.ConnectTimeout}ms " +
+            $"AbortOnConnectFail: {redisOptions.AbortOnConnectFail} " +
+            $"ConnectRetry: {redisOptions.ConnectRetry} attempts");
+        
+        var multiplexer = ConnectionMultiplexer.Connect(redisOptions);
+        
+        // Verify connection is successful
+        var connectionState = multiplexer.IsConnected ? "Connected" : "Disconnected";
+        serviceLogger.LogInformation("Redis connection established. Connection state: {State}", connectionState);
+        
+        // Register error and reconnect handlers
+        multiplexer.ConnectionFailed += (sender, args) => {
+            serviceLogger.LogError("Redis connection failed. Endpoint: {Endpoint}, Exception: {Exception}", 
+                args.EndPoint, args.Exception?.Message ?? "No exception details");
+        };
+        
+        multiplexer.ConnectionRestored += (sender, args) => {
+            serviceLogger.LogInformation("Redis connection restored. Endpoint: {Endpoint}", args.EndPoint);
+        };
+        
+        multiplexer.ErrorMessage += (sender, args) => {
+            serviceLogger.LogWarning("Redis error: {Message}", args.Message);
+        };
+        
+        return multiplexer;
+    }
+    catch (Exception ex)
     {
-        try
+        var serviceLogger = sp.GetRequiredService<ILogger<Program>>();
+        serviceLogger.LogError(ex, "Failed to connect to Redis. The application will continue without Redis functionality.");
+        
+        // Return a dummy multiplexer that won't actually connect
+        var configOptions = new ConfigurationOptions
         {
-            var serviceLogger = sp.GetRequiredService<ILogger<Program>>();
-            // Format endpoints manually with correct type casting for DnsEndPoint
-            string endpoints = string.Join(", ", redisOptions.EndPoints.Select(ep => {
-                if (ep is System.Net.DnsEndPoint dnsEp)
-                    return $"{dnsEp.Host}:{dnsEp.Port}";
-                else if (ep is System.Net.IPEndPoint ipEp)
-                    return $"{ipEp.Address}:{ipEp.Port}";
-                else
-                    return ep.ToString();
-            }));
-                
-            serviceLogger.LogInformation("Attempting to connect to Redis with the following settings: " +
-                $"Endpoints: {endpoints} " +
-                $"ConnectTimeout: {redisOptions.ConnectTimeout}ms " +
-                $"AbortOnConnectFail: {redisOptions.AbortOnConnectFail} " +
-                $"ConnectRetry: {redisOptions.ConnectRetry} attempts");
-            
-            var multiplexer = ConnectionMultiplexer.Connect(redisOptions);
-            
-            // Verify connection is successful
-            var connectionState = multiplexer.IsConnected ? "Connected" : "Disconnected";
-            serviceLogger.LogInformation("Redis connection established. Connection state: {State}", connectionState);
-            
-            // Register error and reconnect handlers
-            multiplexer.ConnectionFailed += (sender, args) => {
-                serviceLogger.LogError("Redis connection failed. Endpoint: {Endpoint}, Exception: {Exception}", 
-                    args.EndPoint, args.Exception?.Message ?? "No exception details");
-            };
-            
-            multiplexer.ConnectionRestored += (sender, args) => {
-                serviceLogger.LogInformation("Redis connection restored. Endpoint: {Endpoint}", args.EndPoint);
-            };
-            
-            multiplexer.ErrorMessage += (sender, args) => {
-                serviceLogger.LogWarning("Redis error: {Message}", args.Message);
-            };
-            
-            return multiplexer;
-        }
-        catch (Exception ex)
-        {
-            var serviceLogger = sp.GetRequiredService<ILogger<Program>>();
-            serviceLogger.LogError(ex, "Failed to connect to Redis. Using null multiplexer as fallback.");
-            return new IqTest_server.Services.NullConnectionMultiplexer();
-        }
-    });
-}
+            AbortOnConnectFail = false,
+            EndPoints = { { "127.0.0.1", 6379 } },
+            ConnectTimeout = 100, // Very short timeout since we know it will fail
+            ConnectRetry = 0, // No retries
+            ReconnectRetryPolicy = new LinearRetry(1000) // Simple retry policy
+        };
+        
+        serviceLogger.LogWarning("Using dummy Redis connection multiplexer to prevent application failure");
+        return ConnectionMultiplexer.Connect(configOptions);
+    }
+});
 
 // Add memory caching
 builder.Services.AddMemoryCache();
