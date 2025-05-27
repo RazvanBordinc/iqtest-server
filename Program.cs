@@ -56,6 +56,9 @@ builder.Services.AddEndpointsApiExplorer();
 // Add HttpContextAccessor
 builder.Services.AddHttpContextAccessor();
 
+// Add HttpClient for LoggingService
+builder.Services.AddHttpClient();
+
 // Add Logging Service 
 builder.Services.AddSingleton<LoggingService>();
 
