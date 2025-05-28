@@ -37,7 +37,7 @@ namespace IqTest_server.Controllers
             // Log first question returned to controller
             var firstQuestion = questionsList.FirstOrDefault()?.Text;
             _logger.LogWarning("CONTROLLER RESPONSE: Returning {Count} questions for {TestTypeId}, First question: {FirstQuestion}", 
-                questionsList.Count, testTypeId, firstQuestion?.Substring(0, Math.Min(100, firstQuestion.Length ?? 0)));
+                questionsList.Count, testTypeId, firstQuestion?.Substring(0, Math.Min(100, firstQuestion?.Length ?? 0)));
             
             return Ok(questionsList);
         }

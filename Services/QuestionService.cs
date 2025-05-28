@@ -63,7 +63,7 @@ namespace IqTest_server.Services
 
                     // Log first question to verify content
                     var firstQuestion = questions.FirstOrDefault()?.Text;
-                    _logger.LogWarning("QUESTION SERVICE CONTENT: First question: {FirstQuestion}", firstQuestion?.Substring(0, Math.Min(100, firstQuestion.Length ?? 0)));
+                    _logger.LogWarning("QUESTION SERVICE CONTENT: First question: {FirstQuestion}", firstQuestion?.Substring(0, Math.Min(100, firstQuestion?.Length ?? 0)));
 
                     return questions;
                 }

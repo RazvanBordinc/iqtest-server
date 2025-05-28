@@ -236,10 +236,7 @@ builder.Services.AddCors(options =>
                 if (origin.StartsWith("https://") && origin.EndsWith(".vercel.app"))
                     return true;
                 
-                // Log rejected origins for debugging
-                var logger = builder.Services.BuildServiceProvider().GetService<ILogger<Program>>();
-                logger?.LogWarning("CORS: Rejected origin {Origin}", origin);
-                
+                // Rejected origin - can't log here without creating service provider
                 return false;
             })
             .AllowCredentials()
@@ -490,7 +487,7 @@ builder.Services.AddAuthentication(options =>
             
             if (context.Exception.GetType() == typeof(SecurityTokenExpiredException))
             {
-                context.Response.Headers.Add("Token-Expired", "true");
+                context.Response.Headers.Append("Token-Expired", "true");
             }
             
             return Task.CompletedTask;

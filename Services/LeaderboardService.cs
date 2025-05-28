@@ -122,7 +122,7 @@ namespace IqTest_server.Services
             }, CacheService.MediumCacheDuration);
         }
 
-        public async Task<UserRankingDto> GetUserRankingAsync(int userId)
+        public async Task<UserRankingDto?> GetUserRankingAsync(int userId)
         {
             var cacheKey = CacheKeys.UserRanking(userId);
             

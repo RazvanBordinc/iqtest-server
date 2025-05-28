@@ -62,7 +62,7 @@ namespace IqTest_server.Services
                         
                         // Log first question to identify cache content
                         var firstQuestion = cachedQuestions.FirstOrDefault()?.Question?.Text;
-                        _logger.LogWarning("CACHE CONTENT: First question from cache: {FirstQuestion}", firstQuestion?.Substring(0, Math.Min(100, firstQuestion.Length ?? 0)));
+                        _logger.LogWarning("CACHE CONTENT: First question from cache: {FirstQuestion}", firstQuestion?.Substring(0, Math.Min(100, firstQuestion?.Length ?? 0)));
                         
                         return cachedQuestions.Take(count).ToList();
                     }
@@ -116,7 +116,7 @@ namespace IqTest_server.Services
                 if (questions != null && questions.Count > 0)
                 {
                     var firstGithubQuestion = questions.FirstOrDefault()?.Text;
-                    _logger.LogWarning("GITHUB CONTENT: First question from GitHub: {FirstQuestion}", firstGithubQuestion?.Substring(0, Math.Min(100, firstGithubQuestion.Length ?? 0)));
+                    _logger.LogWarning("GITHUB CONTENT: First question from GitHub: {FirstQuestion}", firstGithubQuestion?.Substring(0, Math.Min(100, firstGithubQuestion?.Length ?? 0)));
                 }
 
                 // Convert to QuestionSetItem format with weights
