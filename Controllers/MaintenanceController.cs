@@ -189,6 +189,110 @@ namespace IqTest_server.Controllers
 
 
         /// <summary>
+        /// Refresh questions from GitHub by clearing cache and pre-fetching new questions
+        /// </summary>
+        /// <returns>Result of the operation</returns>
+        [HttpPost("refresh-questions")]
+        [AllowAnonymous] // Temporarily allow anonymous access for testing
+        public async Task<IActionResult> RefreshQuestionsFromGitHub()
+        {
+            try
+            {
+                _logger.LogInformation("Starting questions refresh from GitHub");
+                
+                var result = new Dictionary<string, object>();
+                var testTypes = new[] { "number-logic", "word-logic", "memory", "mixed" };
+                
+                // Step 1: Clear existing cache
+                _logger.LogInformation("Clearing existing questions cache");
+                await _redisService.DeleteKeysByPatternAsync("questions:*");
+                await _redisService.DeleteKeysByPatternAsync("question_set:*");
+                _cacheService.RemoveByPrefix(CacheKeys.QuestionsPrefix);
+                _cacheService.RemoveByPrefix(CacheKeys.TestTypePrefix);
+                _cacheService.Remove(CacheKeys.AllTestTypes);
+                
+                result["cacheCleared"] = true;
+                
+                // Step 2: Fetch fresh questions from GitHub for each test type
+                var githubService = HttpContext.RequestServices.GetRequiredService<GithubService>();
+                var questionService = HttpContext.RequestServices.GetRequiredService<QuestionService>();
+                
+                var testTypeResults = new Dictionary<string, object>();
+                
+                foreach (var testType in testTypes)
+                {
+                    try
+                    {
+                        _logger.LogInformation("Fetching questions for test type: {TestType}", testType);
+                        
+                        // Get expected question count
+                        var expectedCount = testType switch
+                        {
+                            "number-logic" => 24,
+                            "word-logic" => 28,
+                            "memory" => 20,
+                            "mixed" => 40,
+                            _ => 20
+                        };
+                        
+                        // Fetch from GitHub (this will populate the cache)
+                        var githubQuestions = await githubService.GetQuestionsAsync(testType, expectedCount);
+                        
+                        // Verify through QuestionService (this ensures consistent caching)
+                        var serviceQuestions = await questionService.GetQuestionsByTestTypeIdAsync(testType);
+                        var serviceQuestionsList = serviceQuestions.ToList();
+                        
+                        testTypeResults[testType] = new
+                        {
+                            githubCount = githubQuestions?.Count ?? 0,
+                            serviceCount = serviceQuestionsList.Count,
+                            success = githubQuestions?.Count > 0 && serviceQuestionsList.Count > 0,
+                            expectedCount = expectedCount
+                        };
+                        
+                        _logger.LogInformation("Test type {TestType}: GitHub={GitHubCount}, Service={ServiceCount}", 
+                            testType, githubQuestions?.Count ?? 0, serviceQuestionsList.Count);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error refreshing questions for test type: {TestType}", testType);
+                        testTypeResults[testType] = new
+                        {
+                            error = ex.Message,
+                            success = false
+                        };
+                    }
+                }
+                
+                result["testTypes"] = testTypeResults;
+                result["refreshCompleted"] = DateTime.UtcNow;
+                
+                // Summary
+                var successfulTypes = testTypeResults.Values.Count(t => ((dynamic)t).success == true);
+                result["summary"] = new
+                {
+                    totalTestTypes = testTypes.Length,
+                    successfulRefreshes = successfulTypes,
+                    allSuccessful = successfulTypes == testTypes.Length
+                };
+                
+                _logger.LogInformation("Questions refresh completed. {SuccessCount}/{TotalCount} test types refreshed successfully", 
+                    successfulTypes, testTypes.Length);
+                
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during questions refresh");
+                return StatusCode(500, new { 
+                    success = false, 
+                    message = "Failed to refresh questions from GitHub", 
+                    error = ex.Message 
+                });
+            }
+        }
+
+        /// <summary>
         /// Clean questions cache to force refresh from GitHub
         /// </summary>
         /// <returns>Result of the operation</returns>
