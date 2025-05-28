@@ -62,7 +62,6 @@ namespace IqTest_server.Controllers
 
         // GET: api/test/availability/{testTypeId}
         [HttpGet("availability/{testTypeId}")]
-        [Authorize]
         public async Task<IActionResult> CheckTestAvailability(string testTypeId)
         {
             try
@@ -80,7 +79,6 @@ namespace IqTest_server.Controllers
 
         // POST: api/test/availability/batch
         [HttpPost("availability/batch")]
-        [Authorize]
         public async Task<IActionResult> CheckBatchTestAvailability([FromBody] List<string> testTypeIds)
         {
             try

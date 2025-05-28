@@ -569,7 +569,7 @@ app.Use(async (context, next) =>
                 if (context.Request.Method == "OPTIONS")
                 {
                     context.Response.Headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS";
-                    context.Response.Headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With";
+                    context.Response.Headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With, cache-control";
                     context.Response.Headers["Access-Control-Max-Age"] = "600";
                     context.Response.StatusCode = 200;
                     return;
