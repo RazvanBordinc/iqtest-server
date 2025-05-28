@@ -17,14 +17,56 @@ namespace IqTest_server.Controllers
     {
         private readonly ApplicationDbContext _context;
         private readonly RedisService _redisService;
+        private readonly ICacheService _cacheService;
 
         public MaintenanceController(
             ApplicationDbContext context,
             RedisService redisService,
+            ICacheService cacheService,
             ILogger<MaintenanceController> logger) : base(logger)
         {
             _context = context;
             _redisService = redisService;
+            _cacheService = cacheService;
+        }
+
+        /// <summary>
+        /// Clean questions cache to force refresh from GitHub
+        /// </summary>
+        /// <returns>Result of the operation</returns>
+        [HttpPost("clear-questions-cache")]
+        [AllowAnonymous] // Temporarily allow anonymous access for testing
+        public async Task<IActionResult> ClearQuestionsCache()
+        {
+            try
+            {
+                _logger.LogInformation("Clearing questions cache to force GitHub refresh");
+                
+                // Delete all cached question sets from Redis
+                await _redisService.DeleteKeysByPatternAsync("questions:*");
+                await _redisService.DeleteKeysByPatternAsync("question_set:*");
+                
+                // Clear in-memory cache for questions and test types
+                _cacheService.RemoveByPrefix(CacheKeys.QuestionsPrefix);
+                _cacheService.RemoveByPrefix(CacheKeys.TestTypePrefix);
+                _cacheService.Remove(CacheKeys.AllTestTypes);
+                
+                _logger.LogInformation("Questions cache cleared successfully from both Redis and memory cache");
+                
+                return Ok(new { 
+                    success = true, 
+                    message = "Questions cache successfully cleared. Next request will fetch fresh questions from GitHub." 
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error clearing questions cache");
+                return StatusCode(500, new { 
+                    success = false, 
+                    message = "Failed to clear questions cache", 
+                    error = ex.Message 
+                });
+            }
         }
 
         /// <summary>
