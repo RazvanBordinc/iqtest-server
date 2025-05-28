@@ -23,6 +23,18 @@ var builder = WebApplication.CreateBuilder(args);
 // For Render deployment detection (optional)
 var isRender = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("RENDER_SERVICE_ID"));
 
+// Configure thread pool settings for Redis (prevents timeouts)
+// This MUST be done early in the application startup
+if (!System.Threading.ThreadPool.SetMinThreads(200, 200))
+{
+    Console.WriteLine("WARNING: Failed to set minimum thread pool threads");
+}
+else
+{
+    System.Threading.ThreadPool.GetMinThreads(out int workerThreads, out int completionPortThreads);
+    Console.WriteLine($"Thread pool configured: Min worker threads = {workerThreads}, Min I/O threads = {completionPortThreads}");
+}
+
 // Debug environment variables on Render
 if (isRender)
 {
@@ -273,14 +285,8 @@ if (builder.Environment.IsProduction() && redisConnectionString.StartsWith("redi
     Console.WriteLine("Converted Redis URL to use SSL (rediss://) for production");
 }
 
-// Redis for caching and rate limiting
-builder.Services.AddStackExchangeRedisCache(options =>
-{
-    options.Configuration = redisConnectionString;
-    options.InstanceName = "IqTest";
-});
-
-// Create Redis connection immediately during startup
+// Create Redis configuration options first
+ConfigurationOptions redisOptions = null!;
 IConnectionMultiplexer redisMultiplexer = null!;
 try
 {
@@ -304,12 +310,17 @@ try
             Ssl = uri.Scheme == "rediss",
             SslProtocols = System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13,
             AbortOnConnectFail = false,
-            ConnectTimeout = 5000,      // 5 seconds for initial connection
-            SyncTimeout = 2000,         
-            AsyncTimeout = 2000,       
-            ConnectRetry = 3,          
-            KeepAlive = 60,
-            ReconnectRetryPolicy = new LinearRetry(5000) // Retry every 5 seconds
+            ConnectTimeout = 15000,      // 15 seconds for initial connection (increased for Upstash)
+            SyncTimeout = 10000,         // 10 seconds for sync operations (increased for Upstash)
+            AsyncTimeout = 10000,        // 10 seconds for async operations (increased for Upstash)
+            ConnectRetry = 5,            // Increased retry attempts
+            KeepAlive = 30,              // Reduced keepalive for better connection health
+            ReconnectRetryPolicy = new ExponentialRetry(3000, 30000), // Exponential backoff: 3s to 30s
+            ResponseTimeout = 10000,     // 10 seconds response timeout
+            DefaultDatabase = 0,
+            AllowAdmin = false,
+            HighPrioritySocketThreads = true,
+            SocketManager = SocketManager.ThreadPool
         };
         
         Console.WriteLine($"Connecting to Upstash Redis at {uri.Host}:{uri.Port} with SSL={uri.Scheme == "rediss"}");
@@ -320,14 +331,20 @@ try
         // Standard connection string
         options = ConfigurationOptions.Parse(redisConnectionString);
         options.AbortOnConnectFail = false;
-        options.ConnectTimeout = 5000;
-        options.SyncTimeout = 2000;
-        options.AsyncTimeout = 2000;
-        options.ConnectRetry = 3;
-        options.ReconnectRetryPolicy = new LinearRetry(5000);
+        options.ConnectTimeout = 15000;  // Increased timeout
+        options.SyncTimeout = 10000;     // Increased timeout
+        options.AsyncTimeout = 10000;    // Increased timeout
+        options.ConnectRetry = 5;
+        options.ReconnectRetryPolicy = new ExponentialRetry(3000, 30000);
+        options.ResponseTimeout = 10000;
+        options.HighPrioritySocketThreads = true;
+        options.SocketManager = SocketManager.ThreadPool;
         
         Console.WriteLine($"Using standard Redis connection string");
     }
+    
+    // Store the options for reuse
+    redisOptions = options;
     
     Console.WriteLine("Initiating Redis connection...");
     redisMultiplexer = ConnectionMultiplexer.Connect(options);
@@ -356,6 +373,7 @@ catch (Exception ex)
             fallbackOptions.AbortOnConnectFail = false;
             fallbackOptions.ConnectTimeout = 1000;
             redisMultiplexer = ConnectionMultiplexer.Connect(fallbackOptions);
+            redisOptions = fallbackOptions; // Store for cache configuration
             Console.WriteLine("Fallback Redis connection established");
         }
         catch (Exception fallbackEx)
@@ -363,12 +381,14 @@ catch (Exception ex)
             Console.WriteLine($"Fallback Redis connection also failed: {fallbackEx.Message}");
             // Create a null multiplexer that RedisService can handle
             redisMultiplexer = null!;
+            redisOptions = null!;
         }
     }
     else
     {
         // On Render, we really need Redis to work
         redisMultiplexer = null!;
+        redisOptions = null!;
     }
 }
 
@@ -381,6 +401,25 @@ else
 {
     // Register a null instance - RedisService will handle this gracefully
     builder.Services.AddSingleton<IConnectionMultiplexer>(sp => null!);
+}
+
+// Redis for caching and rate limiting - use the same configuration
+if (redisOptions != null && redisMultiplexer != null)
+{
+    builder.Services.AddStackExchangeRedisCache(options =>
+    {
+        options.ConfigurationOptions = redisOptions;
+        options.InstanceName = "IqTest";
+    });
+}
+else
+{
+    // Fallback to connection string if options are not available
+    builder.Services.AddStackExchangeRedisCache(options =>
+    {
+        options.Configuration = redisConnectionString;
+        options.InstanceName = "IqTest";
+    });
 }
 
 // Add memory caching

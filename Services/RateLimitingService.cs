@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Logging;
@@ -71,7 +72,8 @@ namespace IqTest_server.Services
                     
                     try 
                     {
-                        var data = await _cache.GetStringAsync(key);
+                        // Use helper method with 5 second timeout for Upstash
+                        var data = await GetStringWithTimeoutAsync(key, TimeSpan.FromSeconds(5));
                         attempts = new RateLimitData();
 
                         if (!string.IsNullOrEmpty(data))
@@ -107,7 +109,12 @@ namespace IqTest_server.Services
                             AbsoluteExpirationRelativeToNow = window
                         };
 
-                        await _cache.SetStringAsync(key, JsonConvert.SerializeObject(attempts), options);
+                        // Use helper method with 5 second timeout for Upstash
+                        var success = await SetStringWithTimeoutAsync(key, JsonConvert.SerializeObject(attempts), options, TimeSpan.FromSeconds(5));
+                        if (!success)
+                        {
+                            _logger.LogWarning($"Failed to update rate limit cache for {key}, but allowing request to proceed");
+                        }
                     }
                     catch (Exception cacheEx)
                     {
@@ -154,7 +161,8 @@ namespace IqTest_server.Services
                 string? data;
                 try 
                 {
-                    data = await _cache.GetStringAsync(key);
+                    // Use helper method with 3 second timeout for status checks
+                    data = await GetStringWithTimeoutAsync(key, TimeSpan.FromSeconds(3));
                 }
                 catch (Exception cacheEx)
                 {
@@ -242,15 +250,16 @@ namespace IqTest_server.Services
                 attempts++;
                 try
                 {
-                    var existingLock = await _cache.GetStringAsync(lockKey);
+                    // Use helper method with 2 second timeout for lock operations
+                    var existingLock = await GetStringWithTimeoutAsync(lockKey, TimeSpan.FromSeconds(2));
                     if (string.IsNullOrEmpty(existingLock))
                     {
                         var options = new DistributedCacheEntryOptions
                         {
                             AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(10)
                         };
-                        await _cache.SetStringAsync(lockKey, lockValue, options);
-                        return true;
+                        var success = await SetStringWithTimeoutAsync(lockKey, lockValue, options, TimeSpan.FromSeconds(2));
+                        if (success) return true;
                     }
                 }
                 catch (StackExchange.Redis.RedisConnectionException redisEx)
@@ -299,18 +308,68 @@ namespace IqTest_server.Services
             return true;
         }
 
+        // Helper method to get string from cache with timeout
+        private async Task<string?> GetStringWithTimeoutAsync(string key, TimeSpan timeout)
+        {
+            using var cts = new CancellationTokenSource(timeout);
+            try
+            {
+                return await _cache.GetStringAsync(key, cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogWarning($"Cache GET operation timed out after {timeout.TotalMilliseconds}ms for key: {key}");
+                return null;
+            }
+            catch (Exception ex) when (ex.Message.Contains("timeout", StringComparison.OrdinalIgnoreCase) || 
+                                      ex.Message.Contains("backlog", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogWarning($"Redis timeout on GET for key: {key}. Error: {ex.Message}");
+                return null;
+            }
+        }
+
+        // Helper method to set string in cache with timeout
+        private async Task<bool> SetStringWithTimeoutAsync(string key, string value, DistributedCacheEntryOptions options, TimeSpan timeout)
+        {
+            using var cts = new CancellationTokenSource(timeout);
+            try
+            {
+                await _cache.SetStringAsync(key, value, options, cts.Token);
+                return true;
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogWarning($"Cache SET operation timed out after {timeout.TotalMilliseconds}ms for key: {key}");
+                return false;
+            }
+            catch (Exception ex) when (ex.Message.Contains("timeout", StringComparison.OrdinalIgnoreCase) || 
+                                      ex.Message.Contains("backlog", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogWarning($"Redis timeout on SET for key: {key}. Error: {ex.Message}");
+                return false;
+            }
+        }
+
         private async Task ReleaseLockAsync(string lockKey)
         {
             try
             {
-                await _cache.RemoveAsync(lockKey);
+                // Use cancellation token with 2 second timeout for lock release
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                await _cache.RemoveAsync(lockKey, cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogDebug("Lock release operation timed out for key: {LockKey}. This is non-critical.", lockKey);
             }
             catch (Exception ex)
             {
                 // If it's a connection issue, just log at debug level to avoid filling logs
                 if (ex.Message.Contains("Connection") || 
                     ex.Message.Contains("Timeout") || 
-                    ex.Message.Contains("Redis"))
+                    ex.Message.Contains("Redis") ||
+                    ex.Message.Contains("backlog"))
                 {
                     _logger.LogDebug(ex, "Redis connection error releasing distributed lock. This is non-critical.");
                 }
