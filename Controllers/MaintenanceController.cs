@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using IqTest_server.Data;
 using IqTest_server.Services;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.Extensions.Configuration;
 using System;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -18,16 +19,19 @@ namespace IqTest_server.Controllers
         private readonly ApplicationDbContext _context;
         private readonly RedisService _redisService;
         private readonly ICacheService _cacheService;
+        private readonly IConfiguration _configuration;
 
         public MaintenanceController(
             ApplicationDbContext context,
             RedisService redisService,
             ICacheService cacheService,
+            IConfiguration configuration,
             ILogger<MaintenanceController> logger) : base(logger)
         {
             _context = context;
             _redisService = redisService;
             _cacheService = cacheService;
+            _configuration = configuration;
         }
 
         /// <summary>
