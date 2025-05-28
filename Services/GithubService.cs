@@ -41,7 +41,7 @@ namespace IqTest_server.Services
             public int Weight { get; set; } // Difficulty weight from 2-8
         }
 
-        public async Task<List<QuestionSetItem>> GetQuestionsAsync(string testTypeId, int count = 20)
+        public async Task<List<QuestionSetItem>> GetQuestionsAsync(string testTypeId, int count = 20, bool forceRefresh = false)
         {
             try
             {
@@ -50,13 +50,23 @@ namespace IqTest_server.Services
                 
                 // First check Redis cache - use numeric ID for consistency with QuestionService
                 string redisKey = $"questions:{numericTestTypeId}";
-                var cachedQuestions = await _redisService.GetAsync<List<QuestionSetItem>>(redisKey);
                 
-                if (cachedQuestions != null && cachedQuestions.Count > 0)
+                if (!forceRefresh)
                 {
-                    _logger.LogInformation("Returning {ReturnCount} cached questions out of {TotalCount} from Redis for test type: {TestTypeId}", 
-                        Math.Min(cachedQuestions.Count, count), cachedQuestions.Count, testTypeId);
-                    return cachedQuestions.Take(count).ToList();
+                    var cachedQuestions = await _redisService.GetAsync<List<QuestionSetItem>>(redisKey);
+                    
+                    if (cachedQuestions != null && cachedQuestions.Count > 0)
+                    {
+                        _logger.LogInformation("Returning {ReturnCount} cached questions out of {TotalCount} from Redis for test type: {TestTypeId}", 
+                            Math.Min(cachedQuestions.Count, count), cachedQuestions.Count, testTypeId);
+                        return cachedQuestions.Take(count).ToList();
+                    }
+                }
+                else
+                {
+                    _logger.LogInformation("Force refresh requested, bypassing cache for test type: {TestTypeId}", testTypeId);
+                    // Clear the specific cache key when forcing refresh
+                    await _redisService.DeleteAsync(redisKey);
                 }
 
                 // If not in cache, fetch from GitHub

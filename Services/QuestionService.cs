@@ -25,17 +25,23 @@ namespace IqTest_server.Services
             _cacheService = cacheService;
         }
 
-        public async Task<IEnumerable<QuestionDto>> GetQuestionsByTestTypeIdAsync(string testTypeId)
+        public async Task<IEnumerable<QuestionDto>> GetQuestionsByTestTypeIdAsync(string testTypeId, bool forceRefresh = false)
         {
             var cacheKey = CacheKeys.Questions(GetDbTestTypeId(testTypeId));
+            
+            if (forceRefresh)
+            {
+                _logger.LogInformation("Force refresh requested, clearing cache for test type: {TestTypeId}", testTypeId);
+                _cacheService.Remove(cacheKey);
+            }
             
             return await _cacheService.GetOrCreateAsync(cacheKey, async () =>
             {
                 // Get the correct question count for each test type
                 int questionCount = GetQuestionCount(testTypeId);
                 
-                // Fetch questions directly from GitHub
-                var questionItems = await _githubService.GetQuestionsAsync(testTypeId, questionCount);
+                // Fetch questions directly from GitHub (force refresh if requested)
+                var questionItems = await _githubService.GetQuestionsAsync(testTypeId, questionCount, forceRefresh);
 
                 if (questionItems != null && questionItems.Count > 0)
                 {

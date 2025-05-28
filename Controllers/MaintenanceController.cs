@@ -203,15 +203,35 @@ namespace IqTest_server.Controllers
                 var result = new Dictionary<string, object>();
                 var testTypes = new[] { "number-logic", "word-logic", "memory", "mixed" };
                 
-                // Step 1: Clear existing cache
-                _logger.LogInformation("Clearing existing questions cache");
+                // Step 1: Aggressively clear ALL caches
+                _logger.LogInformation("Aggressively clearing all question-related caches");
+                
+                // Clear Redis patterns
                 await _redisService.DeleteKeysByPatternAsync("questions:*");
                 await _redisService.DeleteKeysByPatternAsync("question_set:*");
+                await _redisService.DeleteKeysByPatternAsync("answers:*");
+                
+                // Clear specific Redis keys for each test type
+                var numericTestTypeIds = new[] { 1, 2, 3, 4 }; // number-logic, word-logic, memory, mixed
+                foreach (var id in numericTestTypeIds)
+                {
+                    await _redisService.DeleteAsync($"questions:{id}");
+                    await _redisService.DeleteAsync($"answers:{id}");
+                }
+                
+                // Clear in-memory cache
                 _cacheService.RemoveByPrefix(CacheKeys.QuestionsPrefix);
                 _cacheService.RemoveByPrefix(CacheKeys.TestTypePrefix);
+                _cacheService.RemoveByPrefix("answers:");
                 _cacheService.Remove(CacheKeys.AllTestTypes);
                 
+                // Try to force garbage collection to ensure memory is freed
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+                
                 result["cacheCleared"] = true;
+                result["cacheTypes"] = new[] { "Redis questions:*", "Redis question_set:*", "Redis answers:*", "In-memory cache", "Forced GC" };
                 
                 // Step 2: Fetch fresh questions from GitHub for each test type
                 var githubService = HttpContext.RequestServices.GetRequiredService<GithubService>();
@@ -225,6 +245,9 @@ namespace IqTest_server.Controllers
                     {
                         _logger.LogInformation("Fetching questions for test type: {TestType}", testType);
                         
+                        // Add a small delay to ensure cache clearing is complete
+                        await Task.Delay(100);
+                        
                         // Get expected question count
                         var expectedCount = testType switch
                         {
@@ -235,19 +258,26 @@ namespace IqTest_server.Controllers
                             _ => 20
                         };
                         
-                        // Fetch from GitHub (this will populate the cache)
-                        var githubQuestions = await githubService.GetQuestionsAsync(testType, expectedCount);
+                        // Force fetch from GitHub (bypassing cache completely)
+                        var githubQuestions = await githubService.GetQuestionsAsync(testType, expectedCount, forceRefresh: true);
                         
-                        // Verify through QuestionService (this ensures consistent caching)
-                        var serviceQuestions = await questionService.GetQuestionsByTestTypeIdAsync(testType);
+                        // Force refresh through QuestionService as well (this ensures consistent caching)
+                        var serviceQuestions = await questionService.GetQuestionsByTestTypeIdAsync(testType, forceRefresh: true);
                         var serviceQuestionsList = serviceQuestions.ToList();
+                        
+                        // Get some sample questions to verify content
+                        var firstQuestion = githubQuestions?.FirstOrDefault()?.Question?.Text?.Substring(0, Math.Min(50, githubQuestions?.FirstOrDefault()?.Question?.Text?.Length ?? 0)) ?? "No questions";
+                        var lastQuestion = githubQuestions?.LastOrDefault()?.Question?.Text?.Substring(0, Math.Min(50, githubQuestions?.LastOrDefault()?.Question?.Text?.Length ?? 0)) ?? "No questions";
                         
                         testTypeResults[testType] = new
                         {
                             githubCount = githubQuestions?.Count ?? 0,
                             serviceCount = serviceQuestionsList.Count,
                             success = githubQuestions?.Count > 0 && serviceQuestionsList.Count > 0,
-                            expectedCount = expectedCount
+                            expectedCount = expectedCount,
+                            firstQuestion = firstQuestion,
+                            lastQuestion = lastQuestion,
+                            timestamp = DateTime.UtcNow
                         };
                         
                         _logger.LogInformation("Test type {TestType}: GitHub={GitHubCount}, Service={ServiceCount}", 
@@ -701,6 +731,40 @@ namespace IqTest_server.Controllers
                 details = clearedItems,
                 timestamp = DateTime.UtcNow
             };
+        }
+
+        /// <summary>
+        /// Get GitHub URLs being used for question fetching
+        /// </summary>
+        /// <returns>GitHub URLs for each test type</returns>
+        [HttpGet("github-urls")]
+        [AllowAnonymous]
+        public IActionResult GetGitHubUrls()
+        {
+            try
+            {
+                var baseUrl = _configuration["GitHub:BaseUrl"] ?? "https://raw.githubusercontent.com/RazvanBordinc/questions/main/";
+                
+                var urls = new Dictionary<string, object>
+                {
+                    ["baseUrl"] = baseUrl,
+                    ["testTypes"] = new Dictionary<string, string>
+                    {
+                        ["number-logic"] = $"{baseUrl}Numerical.json",
+                        ["word-logic"] = $"{baseUrl}Verbal.json",
+                        ["memory"] = $"{baseUrl}Memory.json",
+                        ["mixed"] = $"{baseUrl}Comprehensive.json"
+                    },
+                    ["timestamp"] = DateTime.UtcNow
+                };
+                
+                return Ok(urls);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting GitHub URLs");
+                return StatusCode(500, new { error = ex.Message });
+            }
         }
     }
 }
