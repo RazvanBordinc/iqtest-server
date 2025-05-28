@@ -669,6 +669,59 @@ namespace IqTest_server.Services
             {
                 _logger.LogInformation("=== CheckTestAvailabilityAsync START for user {UserId}, test {TestTypeId} ===", userId, testTypeId);
                 
+                // Check if testing mode is enabled
+                try
+                {
+                    var testingModeEnabled = await _redisService.GetAsync<bool?>("testing_mode_enabled");
+                    if (testingModeEnabled == true)
+                    {
+                        var testingResult = new
+                        {
+                            canTakeTest = true,
+                            canTake = true,
+                            timeUntilNext = (double?)null,
+                            message = "Test available (Testing mode enabled)"
+                        };
+                        
+                        stopwatch.Stop();
+                        _logger.LogInformation("=== CheckTestAvailabilityAsync TESTING MODE in {ElapsedMs}ms ===", 
+                            stopwatch.ElapsedMilliseconds);
+                        
+                        return testingResult;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Error checking testing mode, continuing with normal flow");
+                }
+                
+                // Check for test override for this specific user and test
+                try
+                {
+                    var overrideKey = $"test_override:{userId}:{testTypeId}";
+                    var overrideValue = await _redisService.GetAsync<bool?>(overrideKey);
+                    if (overrideValue == true)
+                    {
+                        var overrideResult = new
+                        {
+                            canTakeTest = true,
+                            canTake = true,
+                            timeUntilNext = (double?)null,
+                            message = "Test available (Override enabled)"
+                        };
+                        
+                        stopwatch.Stop();
+                        _logger.LogInformation("=== CheckTestAvailabilityAsync OVERRIDE in {ElapsedMs}ms ===", 
+                            stopwatch.ElapsedMilliseconds);
+                        
+                        return overrideResult;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Error checking test override, continuing with normal flow");
+                }
+                
                 // Fast path for anonymous users - no need to check Redis
                 if (userId <= 0)
                 {

@@ -31,6 +31,70 @@ namespace IqTest_server.Controllers
         }
 
         /// <summary>
+        /// Enable testing mode - unlock all tests and clear all cache
+        /// </summary>
+        /// <returns>Result of the operation</returns>
+        [HttpPost("enable-testing-mode")]
+        [AllowAnonymous] // Temporarily allow anonymous access for testing
+        public async Task<IActionResult> EnableTestingMode()
+        {
+            try
+            {
+                _logger.LogInformation("Enabling testing mode - unlocking all tests and clearing cache");
+                
+                var actions = new List<string>();
+                
+                // 1. Clear ALL cache first
+                await ClearAllCacheInternal();
+                actions.Add("Cleared all cache (Redis + Memory)");
+                
+                // 2. Override test availability in Redis for anonymous users
+                var testTypes = new[] { "mixed", "word-logic", "memory", "number-logic" };
+                
+                foreach (var testType in testTypes)
+                {
+                    try
+                    {
+                        // Set test availability override for anonymous users (userId = 0)
+                        var overrideKey = $"test_override:0:{testType}";
+                        await _redisService.SetAsync(overrideKey, true, TimeSpan.FromHours(1));
+                        
+                        // Clear any existing test attempt records for anonymous users
+                        var attemptKey = $"test_attempt:0:{testType}";
+                        await _redisService.DeleteAsync(attemptKey);
+                        
+                        actions.Add($"Unlocked test: {testType}");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Could not unlock test {TestType}", testType);
+                    }
+                }
+                
+                // 3. Set global testing mode flag
+                await _redisService.SetAsync("testing_mode_enabled", true, TimeSpan.FromHours(24));
+                actions.Add("Set global testing mode flag");
+                
+                return Ok(new { 
+                    success = true, 
+                    message = "Testing mode enabled - all tests unlocked for 1 hour",
+                    actions = actions,
+                    validUntil = DateTime.UtcNow.AddHours(1),
+                    timestamp = DateTime.UtcNow
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error enabling testing mode");
+                return StatusCode(500, new { 
+                    success = false, 
+                    message = "Failed to enable testing mode", 
+                    error = ex.Message 
+                });
+            }
+        }
+
+        /// <summary>
         /// Clean ALL cache including questions, rate limiting, test attempts, leaderboards, etc.
         /// </summary>
         /// <returns>Result of the operation</returns>
@@ -118,12 +182,7 @@ namespace IqTest_server.Controllers
                 
                 var totalCleared = clearedItems.Values.Sum();
                 
-                return Ok(new { 
-                    success = true, 
-                    message = $"Complete cache purge successful. Cleared {totalCleared} Redis keys and all in-memory cache.",
-                    details = clearedItems,
-                    timestamp = DateTime.UtcNow
-                });
+                return Ok(await ClearAllCacheInternal());
             }
             catch (Exception ex)
             {
@@ -456,6 +515,95 @@ namespace IqTest_server.Controllers
                 _logger.LogError(ex, "Error during complete system cleanup");
                 return StatusCode(500, new { success = false, message = "Failed to perform complete system cleanup", error = ex.Message });
             }
+        }
+
+        /// <summary>
+        /// Internal helper method to clear all cache
+        /// </summary>
+        private async Task<object> ClearAllCacheInternal()
+        {
+            var clearedItems = new System.Collections.Generic.Dictionary<string, int>();
+            
+            // Clear ALL Redis keys
+            try
+            {
+                // Questions and test data
+                clearedItems["questions"] = await _redisService.DeleteKeysByPatternAsync("questions:*");
+                clearedItems["question_sets"] = await _redisService.DeleteKeysByPatternAsync("question_set:*");
+                
+                // Test attempts and user data
+                clearedItems["test_attempts"] = await _redisService.DeleteKeysByPatternAsync("test_attempt:*");
+                clearedItems["user_data"] = await _redisService.DeleteKeysByPatternAsync("user:*");
+                
+                // Rate limiting keys
+                clearedItems["rate_limits"] = await _redisService.DeleteKeysByPatternAsync("rate_limit:*");
+                clearedItems["api_limits"] = await _redisService.DeleteKeysByPatternAsync("api:*");
+                
+                // Leaderboard data
+                clearedItems["leaderboards"] = await _redisService.DeleteKeysByPatternAsync("leaderboard:*");
+                clearedItems["rankings"] = await _redisService.DeleteKeysByPatternAsync("ranking:*");
+                
+                // Session and auth data
+                clearedItems["sessions"] = await _redisService.DeleteKeysByPatternAsync("session:*");
+                clearedItems["auth_tokens"] = await _redisService.DeleteKeysByPatternAsync("token:*");
+                
+                // Any other patterns
+                clearedItems["cache_general"] = await _redisService.DeleteKeysByPatternAsync("cache:*");
+                clearedItems["temp_data"] = await _redisService.DeleteKeysByPatternAsync("temp:*");
+                
+                _logger.LogInformation("Redis cache cleared: {ClearedItems}", 
+                    System.Text.Json.JsonSerializer.Serialize(clearedItems));
+            }
+            catch (Exception redisEx)
+            {
+                _logger.LogWarning(redisEx, "Error clearing some Redis keys, continuing...");
+            }
+            
+            // Clear ALL in-memory cache
+            try
+            {
+                // Clear specific prefixes
+                _cacheService.RemoveByPrefix(CacheKeys.QuestionsPrefix);
+                _cacheService.RemoveByPrefix(CacheKeys.TestTypePrefix);
+                _cacheService.RemoveByPrefix(CacheKeys.LeaderboardPrefix);
+                _cacheService.RemoveByPrefix(CacheKeys.UserRankPrefix);
+                
+                // Clear specific keys
+                _cacheService.Remove(CacheKeys.AllTestTypes);
+                
+                // Clear any other cached items by common prefixes
+                _cacheService.RemoveByPrefix("test");
+                _cacheService.RemoveByPrefix("user");
+                _cacheService.RemoveByPrefix("auth");
+                _cacheService.RemoveByPrefix("api");
+                _cacheService.RemoveByPrefix("rate");
+                
+                _logger.LogInformation("In-memory cache cleared successfully");
+            }
+            catch (Exception memEx)
+            {
+                _logger.LogWarning(memEx, "Error clearing some in-memory cache items, continuing...");
+            }
+            
+            // Try to flush all Redis databases (if permissions allow)
+            try
+            {
+                await _redisService.FlushDatabaseAsync();
+                _logger.LogInformation("Redis database flushed completely");
+            }
+            catch (Exception flushEx)
+            {
+                _logger.LogWarning(flushEx, "Could not flush Redis database (might not have permissions)");
+            }
+            
+            var totalCleared = clearedItems.Values.Sum();
+            
+            return new { 
+                success = true, 
+                message = $"Complete cache purge successful. Cleared {totalCleared} Redis keys and all in-memory cache.",
+                details = clearedItems,
+                timestamp = DateTime.UtcNow
+            };
         }
     }
 }

@@ -626,5 +626,38 @@ namespace IqTest_server.Services
                 // Don't throw the exception, just log it
             }
         }
+
+        /// <summary>
+        /// Delete a specific key from Redis
+        /// </summary>
+        /// <param name="key">The key to delete</param>
+        /// <returns>True if key was deleted, false otherwise</returns>
+        public async Task<bool> DeleteAsync(string key)
+        {
+            // Try to reconnect if Redis was previously unavailable
+            if (!_isRedisAvailable)
+            {
+                await TryReconnectIfNeededAsync();
+                
+                if (!_isRedisAvailable)
+                {
+                    _logger.LogDebug("Skipping Redis DeleteAsync because Redis is not available for key: {Key}", key);
+                    return false;
+                }
+            }
+            
+            try
+            {
+                var result = await _database.KeyDeleteAsync(key);
+                _logger.LogDebug("Deleted key: {Key}, Result: {Result}", key, result);
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error deleting key: {Key}", key);
+                _isRedisAvailable = false;
+                return false;
+            }
+        }
     }
 }
