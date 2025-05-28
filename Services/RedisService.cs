@@ -488,8 +488,8 @@ namespace IqTest_server.Services
         /// Delete all keys matching a pattern
         /// </summary>
         /// <param name="pattern">The pattern to match (e.g., "questions:*")</param>
-        /// <returns>Task</returns>
-        public async Task DeleteKeysByPatternAsync(string pattern)
+        /// <returns>Number of keys deleted</returns>
+        public async Task<int> DeleteKeysByPatternAsync(string pattern)
         {
             // Try to reconnect if Redis was previously unavailable
             if (!_isRedisAvailable)
@@ -499,13 +499,15 @@ namespace IqTest_server.Services
                 if (!_isRedisAvailable)
                 {
                     _logger.LogDebug("Skipping Redis DeleteKeysByPatternAsync because Redis is not available for pattern: {Pattern}", pattern);
-                    return;
+                    return 0;
                 }
             }
             
             try
             {
                 var endpoints = _redis.GetEndPoints();
+                int totalDeleted = 0;
+                
                 foreach (var endpoint in endpoints)
                 {
                     var server = _redis.GetServer(endpoint);
@@ -520,15 +522,18 @@ namespace IqTest_server.Services
                     if (keys.Count > 0)
                     {
                         await _database.KeyDeleteAsync(keys.ToArray());
+                        totalDeleted += keys.Count;
                         _logger.LogInformation($"Deleted {keys.Count} keys matching pattern: {pattern}");
                     }
                 }
+                
+                return totalDeleted;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error deleting keys by pattern: {Pattern}", pattern);
                 _isRedisAvailable = false; // Mark Redis as unavailable after error
-                // Don't throw the exception, just log it
+                return 0;
             }
         }
 
@@ -578,6 +583,45 @@ namespace IqTest_server.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error deleting all keys from Redis");
+                _isRedisAvailable = false; // Mark Redis as unavailable after error
+                // Don't throw the exception, just log it
+            }
+        }
+
+        /// <summary>
+        /// Flush the entire Redis database
+        /// </summary>
+        /// <returns>Task</returns>
+        public async Task FlushDatabaseAsync()
+        {
+            // Try to reconnect if Redis was previously unavailable
+            if (!_isRedisAvailable)
+            {
+                await TryReconnectIfNeededAsync();
+                
+                if (!_isRedisAvailable)
+                {
+                    _logger.LogDebug("Skipping Redis FlushDatabaseAsync because Redis is not available");
+                    return;
+                }
+            }
+            
+            try
+            {
+                var endpoints = _redis.GetEndPoints();
+                foreach (var endpoint in endpoints)
+                {
+                    var server = _redis.GetServer(endpoint);
+                    if (!server.IsConnected || server.IsReplica) continue;
+                    
+                    // Flush the database
+                    await server.FlushDatabaseAsync();
+                    _logger.LogInformation("Successfully flushed Redis database");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error flushing Redis database");
                 _isRedisAvailable = false; // Mark Redis as unavailable after error
                 // Don't throw the exception, just log it
             }

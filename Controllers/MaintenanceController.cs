@@ -31,6 +31,112 @@ namespace IqTest_server.Controllers
         }
 
         /// <summary>
+        /// Clean ALL cache including questions, rate limiting, test attempts, leaderboards, etc.
+        /// </summary>
+        /// <returns>Result of the operation</returns>
+        [HttpPost("clear-all-cache")]
+        [AllowAnonymous] // Temporarily allow anonymous access for testing
+        public async Task<IActionResult> ClearAllCache()
+        {
+            try
+            {
+                _logger.LogInformation("Starting complete cache purge for testing");
+                
+                var clearedItems = new System.Collections.Generic.Dictionary<string, int>();
+                
+                // 1. Clear ALL Redis keys
+                try
+                {
+                    // Questions and test data
+                    clearedItems["questions"] = await _redisService.DeleteKeysByPatternAsync("questions:*");
+                    clearedItems["question_sets"] = await _redisService.DeleteKeysByPatternAsync("question_set:*");
+                    
+                    // Test attempts and user data
+                    clearedItems["test_attempts"] = await _redisService.DeleteKeysByPatternAsync("test_attempt:*");
+                    clearedItems["user_data"] = await _redisService.DeleteKeysByPatternAsync("user:*");
+                    
+                    // Rate limiting keys
+                    clearedItems["rate_limits"] = await _redisService.DeleteKeysByPatternAsync("rate_limit:*");
+                    clearedItems["api_limits"] = await _redisService.DeleteKeysByPatternAsync("api:*");
+                    
+                    // Leaderboard data
+                    clearedItems["leaderboards"] = await _redisService.DeleteKeysByPatternAsync("leaderboard:*");
+                    clearedItems["rankings"] = await _redisService.DeleteKeysByPatternAsync("ranking:*");
+                    
+                    // Session and auth data
+                    clearedItems["sessions"] = await _redisService.DeleteKeysByPatternAsync("session:*");
+                    clearedItems["auth_tokens"] = await _redisService.DeleteKeysByPatternAsync("token:*");
+                    
+                    // Any other patterns
+                    clearedItems["cache_general"] = await _redisService.DeleteKeysByPatternAsync("cache:*");
+                    clearedItems["temp_data"] = await _redisService.DeleteKeysByPatternAsync("temp:*");
+                    
+                    _logger.LogInformation("Redis cache cleared: {ClearedItems}", 
+                        System.Text.Json.JsonSerializer.Serialize(clearedItems));
+                }
+                catch (Exception redisEx)
+                {
+                    _logger.LogWarning(redisEx, "Error clearing some Redis keys, continuing...");
+                }
+                
+                // 2. Clear ALL in-memory cache
+                try
+                {
+                    // Clear specific prefixes
+                    _cacheService.RemoveByPrefix(CacheKeys.QuestionsPrefix);
+                    _cacheService.RemoveByPrefix(CacheKeys.TestTypePrefix);
+                    _cacheService.RemoveByPrefix(CacheKeys.LeaderboardPrefix);
+                    _cacheService.RemoveByPrefix(CacheKeys.UserRankPrefix);
+                    
+                    // Clear specific keys
+                    _cacheService.Remove(CacheKeys.AllTestTypes);
+                    
+                    // Clear any other cached items by common prefixes
+                    _cacheService.RemoveByPrefix("test");
+                    _cacheService.RemoveByPrefix("user");
+                    _cacheService.RemoveByPrefix("auth");
+                    _cacheService.RemoveByPrefix("api");
+                    _cacheService.RemoveByPrefix("rate");
+                    
+                    _logger.LogInformation("In-memory cache cleared successfully");
+                }
+                catch (Exception memEx)
+                {
+                    _logger.LogWarning(memEx, "Error clearing some in-memory cache items, continuing...");
+                }
+                
+                // 3. Try to flush all Redis databases (if permissions allow)
+                try
+                {
+                    await _redisService.FlushDatabaseAsync();
+                    _logger.LogInformation("Redis database flushed completely");
+                }
+                catch (Exception flushEx)
+                {
+                    _logger.LogWarning(flushEx, "Could not flush Redis database (might not have permissions)");
+                }
+                
+                var totalCleared = clearedItems.Values.Sum();
+                
+                return Ok(new { 
+                    success = true, 
+                    message = $"Complete cache purge successful. Cleared {totalCleared} Redis keys and all in-memory cache.",
+                    details = clearedItems,
+                    timestamp = DateTime.UtcNow
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during complete cache purge");
+                return StatusCode(500, new { 
+                    success = false, 
+                    message = "Failed to clear all cache", 
+                    error = ex.Message 
+                });
+            }
+        }
+
+        /// <summary>
         /// Clean questions cache to force refresh from GitHub
         /// </summary>
         /// <returns>Result of the operation</returns>
