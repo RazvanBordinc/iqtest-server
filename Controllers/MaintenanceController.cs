@@ -230,7 +230,7 @@ namespace IqTest_server.Controllers
                         debug["firstThreeQuestions"] = githubQuestions.Take(3).Select(q => new {
                             id = q.Question.Id,
                             type = q.Question.Type,
-                            text = q.Question.Text?.Substring(0, Math.Min(50, q.Question.Text.Length ?? 0)) + "...",
+                            text = q.Question.Text?.Substring(0, Math.Min(50, q.Question.Text?.Length ?? 0)) + "...",
                             weight = q.Weight
                         }).ToList();
                     }
