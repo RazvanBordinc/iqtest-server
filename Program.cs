@@ -260,10 +260,8 @@ builder.Services.AddCors(options =>
 
 // Redis configuration - simplified for Upstash
 // Check environment variables and configuration in the order Render uses them
-var redisConnectionString = Environment.GetEnvironmentVariable("REDIS_URL") ?? 
-                           Environment.GetEnvironmentVariable("REDIS_CONNECTION_STRING") ??
-                           Environment.GetEnvironmentVariable("UPSTASH_REDIS_URL") ??
-                           builder.Configuration["Redis:ConnectionString"] ?? 
+var redisConnectionString = Environment.GetEnvironmentVariable("REDIS_CONNECTION_STRING") ??
+                           builder.Configuration["Redis:ConnectionString"] ??
                            "localhost:6379";
 
 Console.WriteLine($"Redis source: {(Environment.GetEnvironmentVariable("REDIS_URL") != null ? "REDIS_URL env var" : 
