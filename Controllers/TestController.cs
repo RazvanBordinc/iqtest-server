@@ -62,7 +62,7 @@ namespace IqTest_server.Controllers
 
         // GET: api/test/availability/{testTypeId}
         [HttpGet("availability/{testTypeId}")]
-        [ResponseCache(Duration = 30, VaryByQueryKeys = new[] { "testTypeId" }, VaryByHeader = "Authorization")]
+        [ResponseCache(Duration = 30, VaryByHeader = "Authorization", Location = ResponseCacheLocation.Any)]
         public async Task<IActionResult> CheckTestAvailability(string testTypeId)
         {
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
@@ -91,7 +91,7 @@ namespace IqTest_server.Controllers
 
         // POST: api/test/availability/batch
         [HttpPost("availability/batch")]
-        [ResponseCache(Duration = 30, VaryByHeader = "Authorization")]
+        [ResponseCache(Duration = 30, VaryByHeader = "Authorization", Location = ResponseCacheLocation.Any)]
         public async Task<IActionResult> CheckBatchTestAvailability([FromBody] List<string> testTypeIds)
         {
             try
