@@ -31,8 +31,12 @@ namespace IqTest_server.Services
             
             if (forceRefresh)
             {
-                _logger.LogInformation("Force refresh requested, clearing cache for test type: {TestTypeId}", testTypeId);
+                _logger.LogWarning("FORCE REFRESH: Clearing in-memory cache for test type: {TestTypeId}, Cache Key: {CacheKey}", testTypeId, cacheKey);
                 _cacheService.Remove(cacheKey);
+            }
+            else
+            {
+                _logger.LogWarning("NORMAL REQUEST: Getting questions for test type: {TestTypeId}, Cache Key: {CacheKey}", testTypeId, cacheKey);
             }
             
             return await _cacheService.GetOrCreateAsync(cacheKey, async () =>
@@ -45,7 +49,7 @@ namespace IqTest_server.Services
 
                 if (questionItems != null && questionItems.Count > 0)
                 {
-                    _logger.LogInformation("Retrieved {Count} questions from GitHub for test type: {TestTypeId}",
+                    _logger.LogWarning("QUESTION SERVICE SUCCESS: Retrieved {Count} questions from GitHub for test type: {TestTypeId}",
                         questionItems.Count, testTypeId);
 
                     // Extract just the questions without the correct answers
@@ -57,11 +61,15 @@ namespace IqTest_server.Services
                         questions.Add(item.Question);
                     }
 
+                    // Log first question to verify content
+                    var firstQuestion = questions.FirstOrDefault()?.Text;
+                    _logger.LogWarning("QUESTION SERVICE CONTENT: First question: {FirstQuestion}", firstQuestion?.Substring(0, Math.Min(100, firstQuestion.Length ?? 0)));
+
                     return questions;
                 }
 
                 // Fall back to generated questions if GitHub fetch fails
-                _logger.LogWarning("No questions found on GitHub for test type: {TestTypeId}, falling back to generated questions", testTypeId);
+                _logger.LogWarning("FALLBACK: No questions found on GitHub for test type: {TestTypeId}, falling back to generated questions", testTypeId);
 
                 // Get test type to determine number of questions
                 var testType = TestTypeData.GetTestTypeById(testTypeId);

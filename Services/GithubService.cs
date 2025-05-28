@@ -57,14 +57,23 @@ namespace IqTest_server.Services
                     
                     if (cachedQuestions != null && cachedQuestions.Count > 0)
                     {
-                        _logger.LogInformation("Returning {ReturnCount} cached questions out of {TotalCount} from Redis for test type: {TestTypeId}", 
-                            Math.Min(cachedQuestions.Count, count), cachedQuestions.Count, testTypeId);
+                        _logger.LogWarning("CACHE HIT: Returning {ReturnCount} cached questions out of {TotalCount} from Redis for test type: {TestTypeId}, Cache Key: {CacheKey}", 
+                            Math.Min(cachedQuestions.Count, count), cachedQuestions.Count, testTypeId, redisKey);
+                        
+                        // Log first question to identify cache content
+                        var firstQuestion = cachedQuestions.FirstOrDefault()?.Question?.Text;
+                        _logger.LogWarning("CACHE CONTENT: First question from cache: {FirstQuestion}", firstQuestion?.Substring(0, Math.Min(100, firstQuestion.Length ?? 0)));
+                        
                         return cachedQuestions.Take(count).ToList();
+                    }
+                    else
+                    {
+                        _logger.LogWarning("CACHE MISS: No cached questions found in Redis for test type: {TestTypeId}, Cache Key: {CacheKey}", testTypeId, redisKey);
                     }
                 }
                 else
                 {
-                    _logger.LogInformation("Force refresh requested, bypassing cache for test type: {TestTypeId}", testTypeId);
+                    _logger.LogWarning("FORCE REFRESH: Bypassing cache for test type: {TestTypeId}, Cache Key: {CacheKey}", testTypeId, redisKey);
                     // Clear the specific cache key when forcing refresh
                     await _redisService.DeleteAsync(redisKey);
                 }
@@ -90,18 +99,25 @@ namespace IqTest_server.Services
                 }
 
                 string url = $"{_rawGithubBaseUrl}{filename}";
-                _logger.LogInformation("Fetching questions from GitHub: {Url}", url);
+                _logger.LogWarning("GITHUB FETCH: Fetching questions from GitHub: {Url} for test type: {TestTypeId}", url, testTypeId);
 
                 var response = await _httpClient.GetAsync(url);
                 response.EnsureSuccessStatusCode();
 
                 var content = await response.Content.ReadAsStringAsync();
-                _logger.LogInformation("Raw GitHub content length: {Length} characters for {TestTypeId}", content.Length, testTypeId);
+                _logger.LogWarning("GITHUB RESPONSE: Raw content length: {Length} characters for {TestTypeId}", content.Length, testTypeId);
                 
                 var questions = JsonSerializer.Deserialize<List<QuestionDto>>(content,
                     new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                 
-                _logger.LogInformation("Deserialized {Count} questions from GitHub for {TestTypeId}", questions?.Count ?? 0, testTypeId);
+                _logger.LogWarning("GITHUB PARSED: Deserialized {Count} questions from GitHub for {TestTypeId}", questions?.Count ?? 0, testTypeId);
+                
+                // Log first question from GitHub to verify content
+                if (questions != null && questions.Count > 0)
+                {
+                    var firstGithubQuestion = questions.FirstOrDefault()?.Text;
+                    _logger.LogWarning("GITHUB CONTENT: First question from GitHub: {FirstQuestion}", firstGithubQuestion?.Substring(0, Math.Min(100, firstGithubQuestion.Length ?? 0)));
+                }
 
                 // Convert to QuestionSetItem format with weights
                 var result = new List<QuestionSetItem>();
@@ -133,9 +149,10 @@ namespace IqTest_server.Services
 
                     // Store in Redis with 24-hour expiration
                     await _redisService.SetAsync(redisKey, result, TimeSpan.FromHours(24));
+                    _logger.LogWarning("REDIS CACHE SET: Stored {Count} questions in Redis with key: {CacheKey}", result.Count, redisKey);
                 }
 
-                _logger.LogInformation("Successfully fetched and cached {Count} questions for test type: {TestTypeId}",
+                _logger.LogWarning("GITHUB SUCCESS: Successfully fetched and cached {Count} questions for test type: {TestTypeId}",
                     result.Count, testTypeId);
                 
                 // Return ALL questions, not limited by count - let the calling service handle the selection

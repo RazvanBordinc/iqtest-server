@@ -30,9 +30,16 @@ namespace IqTest_server.Controllers
                 return Unauthorized(new { message = "User not authenticated" });
             }
 
-            _logger.LogInformation("Getting questions for test type: {TestTypeId}, User: {UserId}", testTypeId, userId);
+            _logger.LogWarning("CONTROLLER: Getting questions for test type: {TestTypeId}, User: {UserId}", testTypeId, userId);
             var questions = await _questionService.GetQuestionsByTestTypeIdAsync(testTypeId);
-            return Ok(questions);
+            var questionsList = questions.ToList();
+            
+            // Log first question returned to controller
+            var firstQuestion = questionsList.FirstOrDefault()?.Text;
+            _logger.LogWarning("CONTROLLER RESPONSE: Returning {Count} questions for {TestTypeId}, First question: {FirstQuestion}", 
+                questionsList.Count, testTypeId, firstQuestion?.Substring(0, Math.Min(100, firstQuestion.Length ?? 0)));
+            
+            return Ok(questionsList);
         }
 
         [HttpGet("{questionId}")]

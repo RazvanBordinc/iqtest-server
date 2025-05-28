@@ -561,5 +561,52 @@ namespace IqTest_server.Controllers
             };
         }
 
+        /// <summary>
+        /// Nuclear option: Clear ALL caches and force refresh from GitHub
+        /// </summary>
+        [HttpDelete("clear-all-question-caches")]
+        [AllowAnonymous] // For testing purposes
+        public async Task<IActionResult> ClearAllQuestionCaches()
+        {
+            try
+            {
+                _logger.LogWarning("NUCLEAR CACHE CLEAR: Starting complete cache purge");
+                
+                // Clear Redis completely
+                await _redisService.DeleteKeysByPatternAsync("questions:*");
+                await _redisService.DeleteKeysByPatternAsync("question_set:*");
+                await _redisService.DeleteKeysByPatternAsync("answers:*");
+                
+                // Clear specific keys
+                for (int i = 1; i <= 4; i++)
+                {
+                    await _redisService.DeleteAsync($"questions:{i}");
+                    await _redisService.DeleteAsync($"answers:{i}");
+                }
+                
+                // Clear ALL in-memory cache
+                _cacheService.RemoveByPrefix("questions:");
+                _cacheService.RemoveByPrefix("answers:");
+                _cacheService.RemoveByPrefix("testtype:");
+                
+                // Force garbage collection
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+                
+                _logger.LogWarning("NUCLEAR CACHE CLEAR: Complete cache purge finished");
+                
+                return Ok(new { 
+                    success = true, 
+                    message = "All question caches completely cleared. Next requests will fetch fresh from GitHub.",
+                    timestamp = DateTime.UtcNow
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during nuclear cache clear");
+                return StatusCode(500, new { error = ex.Message });
+            }
+        }
     }
 }
