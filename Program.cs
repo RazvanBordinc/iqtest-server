@@ -229,7 +229,7 @@ builder.Services.AddCors(options =>
                 
                 // Allow specific production domains
                 if (origin == "https://iqtest-app.vercel.app" || 
-                    origin == "https://iqtest-server-tkhl.onrender.com")
+                    origin == "https://iqtest-server-project.onrender.com")
                     return true;
                 
                 // Allow any Vercel app (including preview deployments)
@@ -558,7 +558,7 @@ app.Use(async (context, next) =>
             bool isAllowed = origin.StartsWith("http://localhost:") || 
                            origin.StartsWith("https://localhost:") ||
                            origin == "https://iqtest-app.vercel.app" ||
-                           origin == "https://iqtest-server-tkhl.onrender.com" ||
+                           origin == "https://iqtest-server-project.onrender.com" ||
                            (origin.StartsWith("https://") && origin.EndsWith(".vercel.app"));
             
             if (isAllowed)
