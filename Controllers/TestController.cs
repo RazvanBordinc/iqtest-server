@@ -62,23 +62,36 @@ namespace IqTest_server.Controllers
 
         // GET: api/test/availability/{testTypeId}
         [HttpGet("availability/{testTypeId}")]
+        [ResponseCache(Duration = 30, VaryByQueryKeys = new[] { "testTypeId" }, VaryByHeader = "Authorization")]
         public async Task<IActionResult> CheckTestAvailability(string testTypeId)
         {
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             try
             {
                 var userId = GetUserId();
+                _logger.LogInformation("[TEST_AVAILABILITY] Start checking for user {UserId}, test {TestTypeId}", userId, testTypeId);
+                
                 var availability = await _testService.CheckTestAvailabilityAsync(userId, testTypeId);
+                
+                stopwatch.Stop();
+                _logger.LogInformation("[TEST_AVAILABILITY] Completed for user {UserId}, test {TestTypeId} in {ElapsedMs}ms. Result: {Result}", 
+                    userId, testTypeId, stopwatch.ElapsedMilliseconds, 
+                    System.Text.Json.JsonSerializer.Serialize(availability));
+                
                 return Ok(availability);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error checking test availability for user {UserId}, test type {TestTypeId}", GetUserId(), testTypeId);
+                stopwatch.Stop();
+                _logger.LogError(ex, "[TEST_AVAILABILITY] Error for user {UserId}, test {TestTypeId} after {ElapsedMs}ms", 
+                    GetUserId(), testTypeId, stopwatch.ElapsedMilliseconds);
                 return StatusCode(500, new { message = "An error occurred while checking test availability" });
             }
         }
 
         // POST: api/test/availability/batch
         [HttpPost("availability/batch")]
+        [ResponseCache(Duration = 30, VaryByHeader = "Authorization")]
         public async Task<IActionResult> CheckBatchTestAvailability([FromBody] List<string> testTypeIds)
         {
             try

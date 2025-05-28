@@ -71,11 +71,11 @@ namespace IqTest_server.Services
                 var key = $"test_attempt:{userId}:{testTypeId}";
                 _logger.LogInformation("Checking test availability for user {UserId}, test {TestTypeId}, key: {Key}", userId, testTypeId, key);
                 
-                // Try to get from cache with timeout
+                // Try to get from cache with shorter timeout
                 Task<DateTime?> getTask = _redisService.GetAsync<DateTime?>(key);
                 
-                // Add a timeout to the Redis operation
-                if (await Task.WhenAny(getTask, Task.Delay(2000, cancellationToken)) != getTask)
+                // Reduce timeout to 500ms for faster response
+                if (await Task.WhenAny(getTask, Task.Delay(500, cancellationToken)) != getTask)
                 {
                     _logger.LogWarning("Redis GetAsync timed out for user {UserId}, test {TestTypeId} - allowing test", userId, testTypeId);
                     return true; // Default to allowing the test on timeout
@@ -120,11 +120,11 @@ namespace IqTest_server.Services
                 
                 var key = $"test_attempt:{userId}:{testTypeId}";
                 
-                // Try to get from cache with timeout
+                // Try to get from cache with shorter timeout
                 Task<DateTime?> getTask = _redisService.GetAsync<DateTime?>(key);
                 
-                // Add a timeout to the Redis operation
-                if (await Task.WhenAny(getTask, Task.Delay(2000, cancellationToken)) != getTask)
+                // Reduce timeout to 500ms for faster response
+                if (await Task.WhenAny(getTask, Task.Delay(500, cancellationToken)) != getTask)
                 {
                     _logger.LogWarning("Redis GetAsync timed out for calculating cooldown: user {UserId}, test {TestTypeId}", userId, testTypeId);
                     return null; // No cooldown on timeout
@@ -664,28 +664,58 @@ namespace IqTest_server.Services
         // Check test availability with cooldown info
         public async Task<object> CheckTestAvailabilityAsync(int userId, string testTypeId)
         {
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             try
             {
-                _logger.LogInformation("=== CheckTestAvailabilityAsync called for user {UserId}, test {TestTypeId} ===", userId, testTypeId);
+                _logger.LogInformation("=== CheckTestAvailabilityAsync START for user {UserId}, test {TestTypeId} ===", userId, testTypeId);
                 
-                var canTakeTest = await CanUserTakeTestAsync(userId, testTypeId);
-                var timeUntilNext = await GetTimeUntilNextAttemptAsync(userId, testTypeId);
+                // Fast path for anonymous users - no need to check Redis
+                if (userId <= 0)
+                {
+                    var anonymousResult = new
+                    {
+                        canTakeTest = true,
+                        canTake = true,
+                        timeUntilNext = (double?)null,
+                        message = "Test available"
+                    };
+                    
+                    stopwatch.Stop();
+                    _logger.LogInformation("=== CheckTestAvailabilityAsync FAST PATH (anonymous) in {ElapsedMs}ms ===", 
+                        stopwatch.ElapsedMilliseconds);
+                    
+                    return anonymousResult;
+                }
+                
+                // For authenticated users, check Redis
+                // Run both checks in parallel to reduce total time
+                var canTakeTestTask = CanUserTakeTestAsync(userId, testTypeId);
+                var timeUntilNextTask = GetTimeUntilNextAttemptAsync(userId, testTypeId);
+                
+                await Task.WhenAll(canTakeTestTask, timeUntilNextTask);
+                
+                var canTakeTest = await canTakeTestTask;
+                var timeUntilNext = await timeUntilNextTask;
 
                 var result = new
                 {
                     canTakeTest = canTakeTest,
+                    canTake = canTakeTest, // Add both property names for compatibility
                     timeUntilNext = timeUntilNext?.TotalMilliseconds,
                     message = canTakeTest ? "Test available" : $"Please wait {timeUntilNext?.Hours}h {timeUntilNext?.Minutes}m before retaking this test"
                 };
                 
-                _logger.LogInformation("=== Returning test availability: canTakeTest={CanTake}, timeUntilNext={TimeMs}ms ===", 
-                    result.canTakeTest, result.timeUntilNext);
+                stopwatch.Stop();
+                _logger.LogInformation("=== CheckTestAvailabilityAsync COMPLETE in {ElapsedMs}ms: canTakeTest={CanTake}, timeUntilNext={TimeMs}ms ===", 
+                    stopwatch.ElapsedMilliseconds, result.canTakeTest, result.timeUntilNext);
                 
                 return result;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error checking test availability for user {UserId}, test {TestTypeId}", userId, testTypeId);
+                stopwatch.Stop();
+                _logger.LogError(ex, "Error checking test availability for user {UserId}, test {TestTypeId} after {ElapsedMs}ms", 
+                    userId, testTypeId, stopwatch.ElapsedMilliseconds);
                 throw;
             }
         }
