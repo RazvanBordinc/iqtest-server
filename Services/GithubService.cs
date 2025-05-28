@@ -45,8 +45,11 @@ namespace IqTest_server.Services
         {
             try
             {
-                // First check Redis cache
-                string redisKey = $"questions:{testTypeId}";
+                // Get numeric test type ID for consistent cache keys
+                int numericTestTypeId = GetNumericTestTypeId(testTypeId);
+                
+                // First check Redis cache - use numeric ID for consistency with QuestionService
+                string redisKey = $"questions:{numericTestTypeId}";
                 var cachedQuestions = await _redisService.GetAsync<List<QuestionSetItem>>(redisKey);
                 
                 if (cachedQuestions != null && cachedQuestions.Count > 0)
@@ -162,6 +165,18 @@ namespace IqTest_server.Services
 
             // Ensure weight is between 2 and 8
             return Math.Max(2, Math.Min(8, baseWeight));
+        }
+        
+        private int GetNumericTestTypeId(string testTypeId)
+        {
+            return testTypeId switch
+            {
+                "number-logic" => 1,
+                "word-logic" => 2,
+                "memory" => 3,
+                "mixed" => 4,
+                _ => throw new ArgumentException($"Unknown test type: {testTypeId}")
+            };
         }
     }
 }
