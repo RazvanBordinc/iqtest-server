@@ -26,18 +26,12 @@ namespace IqTest_server.Controllers
             var userId = GetUserId();
             if (userId <= 0)
             {
-                _logger.LogWarning("Unauthorized access to questions - User ID: {UserId}", userId);
+                _logger.LogInformation("Unauthorized access to questions - User ID: {UserId}", userId);
                 return Unauthorized(new { message = "User not authenticated" });
             }
 
-            _logger.LogWarning("CONTROLLER: Getting questions for test type: {TestTypeId}, User: {UserId}", testTypeId, userId);
             var questions = await _questionService.GetQuestionsByTestTypeIdAsync(testTypeId);
             var questionsList = questions.ToList();
-            
-            // Log first question returned to controller
-            var firstQuestion = questionsList.FirstOrDefault()?.Text;
-            _logger.LogWarning("CONTROLLER RESPONSE: Returning {Count} questions for {TestTypeId}, First question: {FirstQuestion}", 
-                questionsList.Count, testTypeId, firstQuestion?.Substring(0, Math.Min(100, firstQuestion?.Length ?? 0)));
             
             return Ok(questionsList);
         }
@@ -49,7 +43,7 @@ namespace IqTest_server.Controllers
             var userId = GetUserId();
             if (userId <= 0)
             {
-                _logger.LogWarning("Unauthorized access to question - User ID: {UserId}", userId);
+                _logger.LogInformation("Unauthorized access to question - User ID: {UserId}", userId);
                 return Unauthorized(new { message = "User not authenticated" });
             }
 

@@ -57,23 +57,15 @@ namespace IqTest_server.Services
                     
                     if (cachedQuestions != null && cachedQuestions.Count > 0)
                     {
-                        _logger.LogWarning("CACHE HIT: Returning {ReturnCount} cached questions out of {TotalCount} from Redis for test type: {TestTypeId}, Cache Key: {CacheKey}", 
-                            Math.Min(cachedQuestions.Count, count), cachedQuestions.Count, testTypeId, redisKey);
-                        
-                        // Log first question to identify cache content
-                        var firstQuestion = cachedQuestions.FirstOrDefault()?.Question?.Text;
-                        _logger.LogWarning("CACHE CONTENT: First question from cache: {FirstQuestion}", firstQuestion?.Substring(0, Math.Min(100, firstQuestion?.Length ?? 0)));
                         
                         return cachedQuestions.Take(count).ToList();
                     }
                     else
                     {
-                        _logger.LogWarning("CACHE MISS: No cached questions found in Redis for test type: {TestTypeId}, Cache Key: {CacheKey}", testTypeId, redisKey);
                     }
                 }
                 else
                 {
-                    _logger.LogWarning("FORCE REFRESH: Bypassing cache for test type: {TestTypeId}, Cache Key: {CacheKey}", testTypeId, redisKey);
                     // Clear the specific cache key when forcing refresh
                     await _redisService.DeleteAsync(redisKey);
                 }
@@ -99,25 +91,15 @@ namespace IqTest_server.Services
                 }
 
                 string url = $"{_rawGithubBaseUrl}{filename}";
-                _logger.LogWarning("GITHUB FETCH: Fetching questions from GitHub: {Url} for test type: {TestTypeId}", url, testTypeId);
 
                 var response = await _httpClient.GetAsync(url);
                 response.EnsureSuccessStatusCode();
 
                 var content = await response.Content.ReadAsStringAsync();
-                _logger.LogWarning("GITHUB RESPONSE: Raw content length: {Length} characters for {TestTypeId}", content.Length, testTypeId);
                 
                 var questions = JsonSerializer.Deserialize<List<QuestionDto>>(content,
                     new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                 
-                _logger.LogWarning("GITHUB PARSED: Deserialized {Count} questions from GitHub for {TestTypeId}", questions?.Count ?? 0, testTypeId);
-                
-                // Log first question from GitHub to verify content
-                if (questions != null && questions.Count > 0)
-                {
-                    var firstGithubQuestion = questions.FirstOrDefault()?.Text;
-                    _logger.LogWarning("GITHUB CONTENT: First question from GitHub: {FirstQuestion}", firstGithubQuestion?.Substring(0, Math.Min(100, firstGithubQuestion?.Length ?? 0)));
-                }
 
                 // Convert to QuestionSetItem format with weights
                 var result = new List<QuestionSetItem>();

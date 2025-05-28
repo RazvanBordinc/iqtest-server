@@ -69,14 +69,7 @@ namespace IqTest_server.Controllers
             try
             {
                 var userId = GetUserId();
-                _logger.LogInformation("[TEST_AVAILABILITY] Start checking for user {UserId}, test {TestTypeId}", userId, testTypeId);
-                
                 var availability = await _testService.CheckTestAvailabilityAsync(userId, testTypeId);
-                
-                stopwatch.Stop();
-                _logger.LogInformation("[TEST_AVAILABILITY] Completed for user {UserId}, test {TestTypeId} in {ElapsedMs}ms. Result: {Result}", 
-                    userId, testTypeId, stopwatch.ElapsedMilliseconds, 
-                    System.Text.Json.JsonSerializer.Serialize(availability));
                 
                 return Ok(availability);
             }

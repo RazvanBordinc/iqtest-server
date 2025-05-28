@@ -29,16 +29,6 @@ namespace IqTest_server.Controllers
         public async Task<IActionResult> CheckUsername([FromBody] object? requestData = null, [FromRoute] string? username = null)
         {
 
-            // Add extra logging for debugging
-            try
-            {
-                _logger.LogInformation("Received check-username request with data: {Data}", 
-                    System.Text.Json.JsonSerializer.Serialize(requestData));
-            }
-            catch
-            {
-                _logger.LogInformation("Received check-username request with non-serializable data");
-            }
             
             // Try to extract username from route parameter first, then from request body
             string usernameValue = username; // From route parameter
@@ -92,7 +82,7 @@ namespace IqTest_server.Controllers
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Error extracting username from request data");
+                    _logger.LogError(ex, "Error extracting username from request data");
                 }
             }
             
@@ -105,7 +95,6 @@ namespace IqTest_server.Controllers
             // Validate username
             if (string.IsNullOrEmpty(usernameValue))
             {
-                _logger.LogWarning("Check username called with empty or null username");
                 return Ok(new { 
                     message = "Username check completed", 
                     exists = false,
@@ -116,7 +105,6 @@ namespace IqTest_server.Controllers
             
             if (usernameValue.Length < 3 || usernameValue.Length > 100)
             {
-                _logger.LogWarning("Username length invalid: {Length}", usernameValue.Length);
                 return Ok(new { 
                     message = "Username check completed", 
                     exists = false,
@@ -131,8 +119,6 @@ namespace IqTest_server.Controllers
                 // This should be combined with registration in production
                 var exists = await _authService.CheckUsernameExistsAsync(usernameValue);
                 
-                _logger.LogInformation("Username check completed for {Username}, exists: {Exists}", 
-                    usernameValue, exists);
                 
                 // Always return success to prevent username enumeration
                 return Ok(new { 
@@ -156,17 +142,9 @@ namespace IqTest_server.Controllers
         [HttpPost("create-user")]
         public async Task<IActionResult> CreateUser([FromBody] object requestData)
         {
-            // Add extra logging for debugging
-            try {
-                _logger.LogInformation("Received create-user request with data: {Data}", 
-                    System.Text.Json.JsonSerializer.Serialize(requestData));
-            } catch {
-                _logger.LogInformation("Received create-user request with non-serializable data");
-            }
             
             if (requestData == null)
             {
-                _logger.LogWarning("Create user called with null data");
                 return BadRequest(new { message = "Invalid request data" });
             }
             
@@ -278,14 +256,12 @@ namespace IqTest_server.Controllers
             // Validate model
             if (model == null || string.IsNullOrEmpty(model.Username) || string.IsNullOrEmpty(model.Password))
             {
-                _logger.LogWarning("Create user model invalid: missing required fields");
                 return BadRequest(new { message = "Username and Password are required" });
             }
             
             // Check length constraints for username
             if (model.Username.Length < 3 || model.Username.Length > 100)
             {
-                _logger.LogWarning("Username validation failed for {Username}: Length constraint", model.Username);
                 return BadRequest(new { 
                     message = "Username must be between 3 and 100 characters",
                     code = "USERNAME_LENGTH_INVALID",
@@ -296,7 +272,6 @@ namespace IqTest_server.Controllers
             // Check username format constraints
             if (!System.Text.RegularExpressions.Regex.IsMatch(model.Username, @"^[a-zA-Z0-9_-]+$"))
             {
-                _logger.LogWarning("Username validation failed for {Username}: Format constraint", model.Username);
                 return BadRequest(new { 
                     message = "Username can only contain letters, numbers, underscores, and hyphens",
                     code = "USERNAME_FORMAT_INVALID",
@@ -307,7 +282,6 @@ namespace IqTest_server.Controllers
             // Check Age constraint
             if (model.Age.HasValue && (model.Age.Value < 1 || model.Age.Value > 120))
             {
-                _logger.LogWarning("Age validation failed: {Age} is not between 1 and 120", model.Age.Value);
                 return BadRequest(new { 
                     message = "Age must be between 1 and 120",
                     code = "AGE_RANGE_INVALID",
@@ -318,7 +292,6 @@ namespace IqTest_server.Controllers
             // Check Password constraints using the StrongPasswordAttribute logic
             if (string.IsNullOrEmpty(model.Password))
             {
-                _logger.LogWarning("Password validation failed: Empty password");
                 return BadRequest(new { 
                     message = "Password is required",
                     code = "PASSWORD_REQUIRED",
@@ -328,7 +301,6 @@ namespace IqTest_server.Controllers
             
             if (model.Password.Length < 8)
             {
-                _logger.LogWarning("Password validation failed: Length constraint");
                 return BadRequest(new { 
                     message = "Password must be at least 8 characters long",
                     code = "PASSWORD_TOO_SHORT",
@@ -338,7 +310,6 @@ namespace IqTest_server.Controllers
             
             if (!System.Text.RegularExpressions.Regex.IsMatch(model.Password, @"[A-Z]"))
             {
-                _logger.LogWarning("Password validation failed: Missing uppercase letter");
                 return BadRequest(new { 
                     message = "Password must contain at least one uppercase letter",
                     code = "PASSWORD_NO_UPPERCASE",
@@ -348,7 +319,6 @@ namespace IqTest_server.Controllers
             
             if (!System.Text.RegularExpressions.Regex.IsMatch(model.Password, @"[a-z]"))
             {
-                _logger.LogWarning("Password validation failed: Missing lowercase letter");
                 return BadRequest(new { 
                     message = "Password must contain at least one lowercase letter",
                     code = "PASSWORD_NO_LOWERCASE",
@@ -358,7 +328,6 @@ namespace IqTest_server.Controllers
             
             if (!System.Text.RegularExpressions.Regex.IsMatch(model.Password, @"\d"))
             {
-                _logger.LogWarning("Password validation failed: Missing digit");
                 return BadRequest(new { 
                     message = "Password must contain at least one number",
                     code = "PASSWORD_NO_DIGIT",
@@ -368,7 +337,6 @@ namespace IqTest_server.Controllers
             
             if (!System.Text.RegularExpressions.Regex.IsMatch(model.Password, @"[!@#$%^&*(),.?""':{}|<>]"))
             {
-                _logger.LogWarning("Password validation failed: Missing special character");
                 return BadRequest(new { 
                     message = "Password must contain at least one special character",
                     code = "PASSWORD_NO_SPECIAL_CHAR",
@@ -378,9 +346,6 @@ namespace IqTest_server.Controllers
 
             try
             {
-                // Add detailed logging before creating user
-                _logger.LogInformation("Creating user with details: Username={Username}, Country={Country}, Age={Age}", 
-                    model.Username, model.Country, model.Age);
                 
                 // Wrap user creation in try/catch to get detailed error info
                 try 
@@ -389,7 +354,6 @@ namespace IqTest_server.Controllers
 
                     if (!success)
                     {
-                        _logger.LogWarning("User creation failed: {Message}", message);
                         return BadRequest(new { message });
                     }
 
@@ -418,7 +382,7 @@ namespace IqTest_server.Controllers
                         }
                         else
                         {
-                            _logger.LogWarning("Auto-login after user creation failed: {Message}", loginMessage);
+                            _logger.LogError("Auto-login after user creation failed: {Message}", loginMessage);
                             // We still return the user, but client might need to login again
                         }
                     }
@@ -499,19 +463,14 @@ namespace IqTest_server.Controllers
         [HttpPost("register")]
         public async Task<IActionResult> Register([FromBody] RegisterRequestDto model)
         {
-            // Add extra logging for debugging
-            _logger.LogInformation("Received register request with model: {ModelInfo}", 
-                new { Username = model?.Username, Country = model?.Country, Age = model?.Age, HasPassword = model?.Password != null });
                 
             if (model == null)
             {
-                _logger.LogWarning("Register called with null model");
                 return BadRequest(new { message = "Invalid request data" });
             }
             
             if (!ModelState.IsValid)
             {
-                _logger.LogWarning("Register model invalid: {ModelState}", ModelState);
                 return BadRequest(ModelState);
             }
 
@@ -519,7 +478,6 @@ namespace IqTest_server.Controllers
 
             if (!success)
             {
-                _logger.LogWarning("Registration failed: {Message}", message);
                 return BadRequest(new { message });
             }
 
@@ -543,19 +501,14 @@ namespace IqTest_server.Controllers
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginRequestDto model)
         {
-            // Add extra logging for debugging
-            _logger.LogInformation("Received login request with model: {ModelInfo}", 
-                new { Username = model?.Username, HasPassword = model?.Password != null });
                 
             if (model == null)
             {
-                _logger.LogWarning("Login called with null model");
                 return BadRequest(new { message = "Invalid request data" });
             }
             
             if (!ModelState.IsValid)
             {
-                _logger.LogWarning("Login model invalid: {ModelState}", ModelState);
                 return BadRequest(ModelState);
             }
 
@@ -563,7 +516,6 @@ namespace IqTest_server.Controllers
 
             if (!success)
             {
-                _logger.LogWarning("Login failed: {Message}", message);
                 return BadRequest(new { message });
             }
 
@@ -578,19 +530,14 @@ namespace IqTest_server.Controllers
         [HttpPost("login-with-password")]
         public async Task<IActionResult> LoginWithPassword([FromBody] LoginRequestDto model)
         {
-            // Add extra logging for debugging
-            _logger.LogInformation("Received login-with-password request with model: {ModelInfo}", 
-                new { Username = model?.Username, HasPassword = model?.Password != null });
                 
             if (model == null)
             {
-                _logger.LogWarning("Login with password called with null model");
                 return BadRequest(new { message = "Invalid request data" });
             }
             
             if (!ModelState.IsValid)
             {
-                _logger.LogWarning("Login with password model invalid: {ModelState}", ModelState);
                 return BadRequest(ModelState);
             }
 
@@ -598,7 +545,6 @@ namespace IqTest_server.Controllers
 
             if (!success)
             {
-                _logger.LogWarning("Login failed: {Message}", message);
                 return BadRequest(new { message });
             }
 
@@ -636,7 +582,6 @@ namespace IqTest_server.Controllers
 
             if (!success)
             {
-                _logger.LogWarning("Token refresh failed: {Message}", message);
                 return BadRequest(new { message });
             }
 

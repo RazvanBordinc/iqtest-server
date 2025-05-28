@@ -99,7 +99,6 @@ namespace IqTest_server.Services
             }
             catch (System.Threading.Tasks.TaskCanceledException)
             {
-                _logger.LogWarning("CanUserTakeTest canceled for user {UserId}, test {TestTypeId} - allowing test", userId, testTypeId);
                 return true; // Allow test if canceled
             }
             catch (Exception ex)
@@ -126,7 +125,6 @@ namespace IqTest_server.Services
                 // Reduce timeout to 500ms for faster response
                 if (await Task.WhenAny(getTask, Task.Delay(500, cancellationToken)) != getTask)
                 {
-                    _logger.LogWarning("Redis GetAsync timed out for calculating cooldown: user {UserId}, test {TestTypeId}", userId, testTypeId);
                     return null; // No cooldown on timeout
                 }
                 
@@ -148,7 +146,6 @@ namespace IqTest_server.Services
             }
             catch (System.Threading.Tasks.TaskCanceledException)
             {
-                _logger.LogWarning("GetTimeUntilNextAttempt canceled for user {UserId}, test {TestTypeId}", userId, testTypeId);
                 return null; // No cooldown if canceled
             }
             catch (Exception ex)

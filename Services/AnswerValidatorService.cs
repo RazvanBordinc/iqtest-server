@@ -75,7 +75,7 @@ namespace IqTest_server.Services
                 var questionIndex = answer.QuestionId - 1;
                 if (questionIndex < 0 || questionIndex >= questions.Count)
                 {
-                    _logger.LogWarning("Invalid question index: {Index} for answer ID: {AnswerId}", questionIndex, answer.QuestionId);
+                    _logger.LogDebug("Invalid question index: {Index} for answer ID: {AnswerId}", questionIndex, answer.QuestionId);
                     continue;
                 }
                 
@@ -99,9 +99,7 @@ namespace IqTest_server.Services
                         // Get partial credit for memory questions
                         float correctRatio = GetMemoryAnswerPartialCredit(answer, question, correctAnswers);
                         
-                        // Log partial credit amount
-                        _logger.LogInformation("Memory question {QuestionId} partial credit: {CorrectRatio:P2}", 
-                            answer.QuestionId, correctRatio);
+                        // Partial credit calculated
                         
                         // Add partial points based on correctness ratio
                         weightedCorrectPoints += (int)(weight * correctRatio);
@@ -160,7 +158,7 @@ namespace IqTest_server.Services
             // we can directly use answer.QuestionId to get the correct answer
             if (!correctAnswers.TryGetValue(answer.QuestionId, out var correctAnswer))
             {
-                _logger.LogWarning("No correct answer found for question ID: {QuestionId}", answer.QuestionId);
+                _logger.LogDebug("No correct answer found for question ID: {QuestionId}", answer.QuestionId);
                 return false;
             }
 
@@ -176,7 +174,7 @@ namespace IqTest_server.Services
                     return CheckMemoryAnswer(answer, question, correctAnswer);
 
                 default:
-                    _logger.LogWarning("Unknown question type: {QuestionType}", question.Type);
+                    _logger.LogDebug("Unknown question type: {QuestionType}", question.Type);
                     return false;
             }
         }
@@ -318,8 +316,7 @@ namespace IqTest_server.Services
             // This allows for partial credit instead of all-or-nothing
             float correctPercentage = (float)correctCount / totalExpected;
             
-            _logger.LogInformation("Memory answer check: {CorrectCount}/{TotalExpected} = {Percentage:P2}", 
-                correctCount, totalExpected, correctPercentage);
+            // Memory answer check: correctCount/totalExpected = correctPercentage
                 
             // Consider fully correct if at least 75% of pairs are recalled correctly
             // But give partial credit too - this affects the overall weighted score
@@ -334,7 +331,7 @@ namespace IqTest_server.Services
                 // Get the correct answer string for this question
                 if (!correctAnswers.TryGetValue(answer.QuestionId, out var correctAnswer))
                 {
-                    _logger.LogWarning("No correct answer found for memory question ID: {QuestionId}", answer.QuestionId);
+                    _logger.LogDebug("No correct answer found for memory question ID: {QuestionId}", answer.QuestionId);
                     return 0f;
                 }
                 
@@ -394,9 +391,6 @@ namespace IqTest_server.Services
                 }
 
                 float correctRatio = (float)correctCount / totalExpected;
-                _logger.LogInformation("Memory answer partial credit: {CorrectCount}/{TotalExpected} = {CorrectRatio:P2}",
-                    correctCount, totalExpected, correctRatio);
-                    
                 return correctRatio;
             }
             catch (Exception ex)
