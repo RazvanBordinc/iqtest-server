@@ -51,7 +51,8 @@ namespace IqTest_server.Services
                 
                 if (cachedQuestions != null && cachedQuestions.Count > 0)
                 {
-                    _logger.LogInformation("Returning cached questions from Redis for test type: {TestTypeId}", testTypeId);
+                    _logger.LogInformation("Returning {ReturnCount} cached questions out of {TotalCount} from Redis for test type: {TestTypeId}", 
+                        Math.Min(cachedQuestions.Count, count), cachedQuestions.Count, testTypeId);
                     return cachedQuestions.Take(count).ToList();
                 }
 
@@ -82,8 +83,12 @@ namespace IqTest_server.Services
                 response.EnsureSuccessStatusCode();
 
                 var content = await response.Content.ReadAsStringAsync();
+                _logger.LogInformation("Raw GitHub content length: {Length} characters for {TestTypeId}", content.Length, testTypeId);
+                
                 var questions = JsonSerializer.Deserialize<List<QuestionDto>>(content,
                     new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                
+                _logger.LogInformation("Deserialized {Count} questions from GitHub for {TestTypeId}", questions?.Count ?? 0, testTypeId);
 
                 // Convert to QuestionSetItem format with weights
                 var result = new List<QuestionSetItem>();
@@ -120,6 +125,10 @@ namespace IqTest_server.Services
                 _logger.LogInformation("Successfully fetched and cached {Count} questions for test type: {TestTypeId}",
                     result.Count, testTypeId);
                 
+                // Return ALL questions, not limited by count - let the calling service handle the selection
+                _logger.LogInformation("Returning {ReturnCount} questions out of {TotalCount} for {TestTypeId}", 
+                    Math.Min(result.Count, count), result.Count, testTypeId);
+                    
                 return result.Take(count).ToList();
             }
             catch (Exception ex)

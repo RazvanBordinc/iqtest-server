@@ -31,7 +31,7 @@ namespace IqTest_server.Controllers
         }
 
         /// <summary>
-        /// Enable testing mode - unlock all tests and clear all cache
+        /// Enable testing mode - unlock all tests without clearing cache
         /// </summary>
         /// <returns>Result of the operation</returns>
         [HttpPost("enable-testing-mode")]
@@ -40,15 +40,11 @@ namespace IqTest_server.Controllers
         {
             try
             {
-                _logger.LogInformation("Enabling testing mode - unlocking all tests and clearing cache");
+                _logger.LogInformation("Enabling testing mode - unlocking all tests");
                 
                 var actions = new List<string>();
                 
-                // 1. Clear ALL cache first
-                await ClearAllCacheInternal();
-                actions.Add("Cleared all cache (Redis + Memory)");
-                
-                // 2. Override test availability in Redis for anonymous users
+                // Override test availability in Redis for anonymous users
                 var testTypes = new[] { "mixed", "word-logic", "memory", "number-logic" };
                 
                 foreach (var testType in testTypes)
@@ -59,10 +55,6 @@ namespace IqTest_server.Controllers
                         var overrideKey = $"test_override:0:{testType}";
                         await _redisService.SetAsync(overrideKey, true, TimeSpan.FromHours(1));
                         
-                        // Clear any existing test attempt records for anonymous users
-                        var attemptKey = $"test_attempt:0:{testType}";
-                        await _redisService.DeleteAsync(attemptKey);
-                        
                         actions.Add($"Unlocked test: {testType}");
                     }
                     catch (Exception ex)
@@ -71,7 +63,7 @@ namespace IqTest_server.Controllers
                     }
                 }
                 
-                // 3. Set global testing mode flag
+                // Set global testing mode flag
                 await _redisService.SetAsync("testing_mode_enabled", true, TimeSpan.FromHours(24));
                 actions.Add("Set global testing mode flag");
                 
@@ -190,6 +182,96 @@ namespace IqTest_server.Controllers
                 return StatusCode(500, new { 
                     success = false, 
                     message = "Failed to clear all cache", 
+                    error = ex.Message 
+                });
+            }
+        }
+
+        /// <summary>
+        /// Debug question fetching from GitHub
+        /// </summary>
+        /// <returns>Debug information about question fetching</returns>
+        [HttpGet("debug-questions/{testTypeId}")]
+        [AllowAnonymous] // Temporarily allow anonymous access for testing
+        public async Task<IActionResult> DebugQuestions(string testTypeId)
+        {
+            try
+            {
+                _logger.LogInformation("Debugging question fetch for test type: {TestTypeId}", testTypeId);
+                
+                var debug = new System.Collections.Generic.Dictionary<string, object>();
+                
+                // 1. Check what the GithubService would fetch
+                var githubService = HttpContext.RequestServices.GetRequiredService<GithubService>();
+                var questionService = HttpContext.RequestServices.GetRequiredService<QuestionService>();
+                
+                // Get expected question count
+                var expectedCount = testTypeId switch
+                {
+                    "number-logic" => 24,
+                    "word-logic" => 28,
+                    "memory" => 20,
+                    "mixed" => 40,
+                    _ => 20
+                };
+                
+                debug["expectedQuestionCount"] = expectedCount;
+                debug["testTypeId"] = testTypeId;
+                
+                // 2. Try to fetch directly from GitHub
+                try
+                {
+                    var githubQuestions = await githubService.GetQuestionsAsync(testTypeId, expectedCount);
+                    debug["githubQuestionsCount"] = githubQuestions?.Count ?? 0;
+                    debug["githubQuestionsFound"] = githubQuestions != null && githubQuestions.Count > 0;
+                    
+                    if (githubQuestions != null && githubQuestions.Count > 0)
+                    {
+                        debug["firstThreeQuestions"] = githubQuestions.Take(3).Select(q => new {
+                            id = q.Question.Id,
+                            type = q.Question.Type,
+                            text = q.Question.Text?.Substring(0, Math.Min(50, q.Question.Text.Length ?? 0)) + "...",
+                            weight = q.Weight
+                        }).ToList();
+                    }
+                }
+                catch (Exception githubEx)
+                {
+                    debug["githubError"] = githubEx.Message;
+                    debug["githubException"] = githubEx.GetType().Name;
+                }
+                
+                // 3. Try through QuestionService
+                try
+                {
+                    var serviceQuestions = await questionService.GetQuestionsByTestTypeIdAsync(testTypeId);
+                    var serviceQuestionsList = serviceQuestions.ToList();
+                    debug["serviceQuestionsCount"] = serviceQuestionsList.Count;
+                    
+                    if (serviceQuestionsList.Count > 0)
+                    {
+                        debug["serviceFirstThreeQuestions"] = serviceQuestionsList.Take(3).Select(q => new {
+                            id = q.Id,
+                            type = q.Type,
+                            text = q.Text?.Substring(0, Math.Min(50, q.Text?.Length ?? 0)) + "...",
+                            weight = q.Weight
+                        }).ToList();
+                    }
+                }
+                catch (Exception serviceEx)
+                {
+                    debug["serviceError"] = serviceEx.Message;
+                    debug["serviceException"] = serviceEx.GetType().Name;
+                }
+                
+                return Ok(debug);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error debugging questions for test type: {TestTypeId}", testTypeId);
+                return StatusCode(500, new { 
+                    success = false, 
+                    message = "Failed to debug questions", 
                     error = ex.Message 
                 });
             }
