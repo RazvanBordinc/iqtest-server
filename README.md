@@ -25,7 +25,7 @@
 
 ### 🧪 Test Management
 - **Multiple Test Types**: Numerical reasoning, verbal intelligence, memory & recall, and comprehensive IQ tests
-- **Adaptive Question Generation**: Dynamic question pools with varied difficulty levels
+- **GitHub-based Questions**: Questions fetched from external GitHub repository with caching
 - **Smart Availability System**: 24-hour cooldown periods with precise timing
 - **Advanced Scoring**: Sophisticated algorithms for accurate cognitive assessment
 
@@ -211,16 +211,17 @@ IqTest-server/
 ├── 📁 Services/                      # Business logic layer
 │   ├── AnswerValidatorService.cs     # Answer validation
 │   ├── AuthService.cs                # Authentication logic
-│   ├── GithubService.cs              # External integrations
-│   ├── HardcodedTestData.cs          # Test data management
+│   ├── CacheService.cs               # In-memory caching service
+│   ├── GithubService.cs              # GitHub question fetching
+│   ├── HardcodedTestData.cs          # Test type definitions
 │   ├── LeaderboardService.cs         # Ranking calculations
 │   ├── LoggingService.cs             # Application logging
 │   ├── ProfileService.cs             # Profile management
-│   ├── QuestionGeneratorService.cs   # Dynamic question generation
+│   ├── QuestionGeneratorService.cs   # Fallback question generation
 │   ├── QuestionService.cs            # Question management
 │   ├── QuestionsRefreshService.cs    # Question pool refresh
 │   ├── RateLimitingService.cs        # Rate limit enforcement
-│   ├── RedisService.cs               # Caching service
+│   ├── RedisService.cs               # Redis caching service
 │   ├── ScoreCalculationService.cs    # Scoring algorithms
 │   └── TestService.cs                # Test orchestration
 ├── 📁 Utilities/                     # Helper utilities
@@ -264,12 +265,13 @@ POST   /api/auth/create-user       # Alternative registration endpoint
 
 ### 🧪 Test Management
 ```http
-GET    /api/test/types                    # Available test types
-GET    /api/test/questions/{testTypeId}   # Get test questions
-POST   /api/test/submit                   # Submit test answers
-GET    /api/test/results/{testId}         # Retrieve test results
-GET    /api/test/availability/{testId}    # Check test availability
-GET    /api/test/stats                    # Test statistics
+GET    /api/test/types                      # Available test types
+GET    /api/question/test/{testTypeId}      # Get test questions (authenticated)
+POST   /api/test/submit                     # Submit test answers
+GET    /api/test/availability/{testTypeId}  # Check test availability
+POST   /api/test/availability/batch         # Check multiple test availability
+GET    /api/test/stats/{testTypeId}         # Test statistics
+POST   /api/test/clear-cooldowns            # Clear test cooldowns (debug)
 ```
 
 ### 👤 User Profile
@@ -289,11 +291,13 @@ GET    /api/leaderboard/user-ranking        # Current user's ranking
 GET    /api/leaderboard/country/{country}   # Country-specific rankings
 ```
 
-### 📊 System Health
+### 📊 System Health & Maintenance
 ```http
-GET    /api/health              # Health check endpoint
-GET    /api/health/wake         # Server wake-up endpoint
-GET    /api/health/detailed     # Detailed health information
+GET    /api/health                     # Health check endpoint
+GET    /api/health/wake                # Server wake-up endpoint
+DELETE /api/maintenance/clear-cache    # Clear Redis cache (admin)
+DELETE /api/maintenance/clear-all-cache # Clear all caches including rate limiting
+POST   /api/maintenance/refresh-questions # Refresh questions from GitHub
 ```
 
 ## ⚙️ Configuration
@@ -470,7 +474,7 @@ This project is [MIT](../LICENSE) licensed.
 <div align="center">
   <p>Built with ❤️ using ASP.NET Core 9.0</p>
   <p>
-    <a href="https://iqtest-server.onrender.com/swagger">Live API Documentation</a> •
+    <a href="https://iqtest-server-project.onrender.com/swagger">Live API Documentation</a> •
     <a href="../iqtest/README.md">Frontend Documentation</a> •
     <a href="../.claude/README.md">Project Overview</a>
   </p>
